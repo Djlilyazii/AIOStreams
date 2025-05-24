@@ -36,11 +36,11 @@ AIOStreams consolidates multiple Stremio addons and debrid services into a singl
   - Filter by custom regex pattern. (*Requires an `API_KEY` to be set*)
   - Specify minimum and maximum file sizes individually for episodes and movies.
   - Prioritise and/or exclude specific languages.
-- **📊 Sophisticated Sorting** – Sort aggregated results by quality, resolution, size, cached status, visual tags, audio tags, encodes, seeders (for torrents), service provider, language, personal preferences, or multiple custom regex patterns (*Regex patterns require an `API_KEY` to be set*)
+- **📊 Sophisticated Sorting** – Sort aggregated results by quality, resolution, size, cached status, visual tags, audio tags, encodes, seeders, service provider, language, personal preferences, or multiple custom regex patterns (*Regex patterns require an `API_KEY` to be set*)
 - **🗂️ Intelligent Deduplication** - Intelligently removes duplicate results and prioritises specific services and addons for the same file based on your configuration.
 - **🚦 Result Limiting** - Limit the number of results shown per resolution.
 - **🎨 Customizable Formatting**:
-  - Choose from predefined formats (e.g., `gdrive`, `minimalistic-gdrive`, `torrentio`, `torbox`).
+  - Choose from predefined formats (e.g., `gdrive`, `minimalistic-gdrive`, ``, `torbox`).
   - Utilise a **Custom Formatter** system to define exactly how stream information is displayed. See the [Custom Formatter Wiki page](https://github.com/Viren070/AIOStreams/wiki/Custom-Formatter) for details.
   - View the formatters in the live preview at the configuration page.
 - **🔁 Proxy Integration** - Proxy your streams through either [**MediaFlow**](https://github.com/mhdzumair/mediaflow-proxy) or [**StremThru**](https://github.com/MunifTanjim/stremthru) to allow for:
@@ -51,7 +51,7 @@ AIOStreams consolidates multiple Stremio addons and debrid services into a singl
 
 AIOStreams integrates results from, and has automated configuration for, the following addons:
 
-- Torrentio
+
 - MediaFusion
 - Comet
 - Torbox Addon
@@ -76,14 +76,14 @@ There are several ways to use AIOStreams:
 
 1. 🔓 **Public Instance:**
 
-   - **[Community Instance (Hosted by ElfHosted)](https://aiostreams.elfhosted.com/configure)**: A free-to-use, ratelimited, public instance. Note that the Torrentio addon is disabled on this instance. This instance avoids rate limits for other ElfHosted addons (like Comet, MediaFusion) but might be rate-limited by non-ElfHosted addons.
+   - **[Community Instance (Hosted by ElfHosted)](https://aiostreams.elfhosted.com/configure)**: A free-to-use, ratelimited, public instance. This instance avoids rate limits for other ElfHosted addons (like Comet, MediaFusion) but might be rate-limited by non-ElfHosted addons.
 
 2. 🛠️ **Self-Hosting / Paid Hosting:**
    - Host AIOStreams yourself using methods like Docker, Cloudflare Workers, or directly from the source.
    - Use a paid hosting provider like [ElfHosted](https://store.elfhosted.com/product/aiostreams/elf/viren070/) (using this link supports the project!) or Heroku.
 
 > [!NOTE]
-> A [private ElfHosted instance](https://store.elfhosted.com/product/aiostreams/elf/viren070/) will support all addons, including Torrentio, avoid ratelimits of all ElfHosted addons, and also have no rate limit of its own.
+> A [private ElfHosted instance](https://store.elfhosted.com/product/aiostreams/elf/viren070/) will support all addons, including , avoid ratelimits of all ElfHosted addons, and also have no rate limit of its own.
 
 Regardless of the method you choose, once AIOStreams is accessible, navigate to its `/configure` page in your browser. Here, you can:
 
