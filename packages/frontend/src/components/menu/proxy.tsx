@@ -75,6 +75,7 @@ function Content() {
   const isProxyForced = isForced?.enabled !== null;
   const isUrlForced = isForced?.url !== null;
   const isIdForced = isForced?.id !== null;
+  const isPublicIpForced = isForced?.publicIp !== null;
   const isCredentialsForced = isForced?.credentials !== null;
   const isServicesForced = isForced?.proxiedServices !== null;
   const isProxiedAddonsDisabled = isForced?.disableProxiedAddons;
@@ -118,7 +119,7 @@ function Content() {
           <div className="space-y-2">
             <Select
               label="Proxy Service"
-              value={userData.proxy?.id ?? 'mediaflow'}
+              value={userData.proxy?.id}
               onValueChange={(v) => {
                 setUserData((prev) => ({
                   ...prev,
@@ -175,6 +176,27 @@ function Content() {
                 </MarkdownLite>
               </p>
             )}
+          </div>
+
+          <div className="space-y-2">
+            <TextInput
+              label="Public IP"
+              value={userData.proxy?.publicIp ?? ''}
+              onValueChange={(v) => {
+                setUserData((prev) => ({
+                  ...prev,
+                  proxy: { ...prev.proxy, publicIp: v || undefined },
+                }));
+              }}
+              placeholder="Enter public IP"
+              disabled={isPublicIpForced || !userData.proxy?.enabled}
+            />
+            <p className="text-[--muted] text-sm">
+              Configure this only when running {selectedProxyDetails?.name}{' '}
+              locally with a proxy service. Leave empty if{' '}
+              {selectedProxyDetails?.name} is configured locally without a proxy
+              server or if it's hosted on a remote server.
+            </p>
           </div>
         </SettingsCard>
 

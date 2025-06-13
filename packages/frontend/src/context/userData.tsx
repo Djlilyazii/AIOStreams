@@ -87,11 +87,13 @@ export function UserDataProvider({ children }: { children: React.ReactNode }) {
       newData.proxy = {
         ...newData.proxy,
         enabled: forced.proxy.enabled ?? defaults.proxy?.enabled ?? undefined,
-        id: (forced.proxy.id ?? defaults.proxy?.id ?? undefined) as
+        id: (forced.proxy.id ?? defaults.proxy?.id ?? 'mediaflow') as
           | 'mediaflow'
           | 'stremthru'
           | undefined,
         url: forced.proxy.url ?? defaults.proxy?.url ?? undefined,
+        publicIp:
+          forced.proxy.publicIp ?? defaults.proxy?.publicIp ?? undefined,
         credentials:
           forced.proxy.credentials ?? defaults.proxy?.credentials ?? undefined,
         proxiedServices:
