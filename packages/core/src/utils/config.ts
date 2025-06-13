@@ -350,7 +350,7 @@ async function validateRegexes(config: UserData) {
 }
 
 function ensureDecrypted(config: UserData): UserData {
-  const decryptedConfig = { ...config };
+  const decryptedConfig: UserData = structuredClone(config);
 
   // Helper function to decrypt a value if needed
   const tryDecrypt = (value: any, context: string) => {
@@ -375,12 +375,14 @@ function ensureDecrypted(config: UserData): UserData {
 
   // Decrypt proxy config
   if (decryptedConfig.proxy) {
-    const proxy = decryptedConfig.proxy;
-    proxy.credentials = proxy.credentials
-      ? tryDecrypt(decodeURIComponent(proxy.credentials), 'proxy credentials')
+    decryptedConfig.proxy.credentials = decryptedConfig.proxy.credentials
+      ? tryDecrypt(
+          decodeURIComponent(decryptedConfig.proxy.credentials),
+          'proxy credentials'
+        )
       : undefined;
-    proxy.url = proxy.url
-      ? tryDecrypt(decodeURIComponent(proxy.url), 'proxy URL')
+    decryptedConfig.proxy.url = decryptedConfig.proxy.url
+      ? tryDecrypt(decodeURIComponent(decryptedConfig.proxy.url), 'proxy URL')
       : undefined;
   }
 
@@ -519,7 +521,7 @@ function validateOption(
     }
 
     if (option.forced) {
-      value = option.forced;
+      value = encryptString(option.forced).data;
     }
     value = decodeURIComponent(value);
     if (isEncrypted(value) && decryptValues) {
@@ -557,8 +559,12 @@ async function validateProxy(
   // apply forced values if they exist
   proxy.enabled = Env.FORCE_PROXY_ENABLED ?? proxy.enabled;
   proxy.id = Env.FORCE_PROXY_ID ?? proxy.id;
-  proxy.url = Env.FORCE_PROXY_URL ?? proxy.url;
-  proxy.credentials = Env.FORCE_PROXY_CREDENTIALS ?? proxy.credentials;
+  proxy.url = Env.FORCE_PROXY_URL
+    ? (encryptString(Env.FORCE_PROXY_URL).data ?? undefined)
+    : (proxy.url ?? undefined);
+  proxy.credentials = Env.FORCE_PROXY_CREDENTIALS
+    ? (encryptString(Env.FORCE_PROXY_CREDENTIALS).data ?? undefined)
+    : (proxy.credentials ?? undefined);
   proxy.publicIp = Env.FORCE_PROXY_PUBLIC_IP ?? proxy.publicIp;
   proxy.proxiedAddons = Env.FORCE_PROXY_DISABLE_PROXIED_ADDONS
     ? undefined
