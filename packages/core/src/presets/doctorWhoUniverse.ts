@@ -1,19 +1,36 @@
-import { Addon, Option, UserData } from '../db';
+// stremio://new-who.onrender.com/manifest.json
+
+import { Addon, Option, ParsedStream, Stream, UserData } from '../db';
 import { Preset, baseOptions } from './preset';
 import { constants, Env } from '../utils';
+import { StreamParser } from '../parser';
 
-export class AnimeKitsuPreset extends Preset {
+class DoctorWhoUniverseStreamParser extends StreamParser {
+  protected override getMessage(
+    stream: Stream,
+    currentParsedStream: ParsedStream
+  ): string | undefined {
+    return stream.name;
+  }
+}
+
+export class DoctorWhoUniversePreset extends Preset {
+  static override getParser(): typeof StreamParser {
+    return DoctorWhoUniverseStreamParser;
+  }
+
   static override get METADATA() {
     const supportedResources = [
       constants.CATALOG_RESOURCE,
       constants.META_RESOURCE,
+      constants.STREAM_RESOURCE,
     ];
 
     const options: Option[] = [
       ...baseOptions(
-        'Anime Kitsu',
+        'Doctor Who Universe',
         supportedResources,
-        Env.DEFAULT_ANIME_KITSU_TIMEOUT
+        Env.DEFAULT_DOCTOR_WHO_UNIVERSE_TIMEOUT
       ),
       {
         id: 'socials',
@@ -21,23 +38,22 @@ export class AnimeKitsuPreset extends Preset {
         description: '',
         type: 'socials',
         socials: [
-          {
-            id: 'github',
-            url: 'https://github.com/TheBeastLT/stremio-kitsu-anime',
-          },
+          { id: 'github', url: 'https://github.com/nubblyn/whoniverse' },
         ],
       },
     ];
 
     return {
-      ID: 'anime-kitsu',
-      NAME: 'Anime Kitsu',
-      LOGO: 'https://i.imgur.com/7N6XGoO.png',
-      URL: Env.ANIME_KITSU_URL,
-      TIMEOUT: Env.DEFAULT_ANIME_KITSU_TIMEOUT || Env.DEFAULT_TIMEOUT,
-      USER_AGENT: Env.DEFAULT_ANIME_KITSU_USER_AGENT || Env.DEFAULT_USER_AGENT,
+      ID: 'doctor-who-universe',
+      NAME: 'Doctor Who Universe',
+      LOGO: 'https://i.imgur.com/zQ9Btju.png',
+      URL: Env.DOCTOR_WHO_UNIVERSE_URL,
+      TIMEOUT: Env.DEFAULT_DOCTOR_WHO_UNIVERSE_TIMEOUT || Env.DEFAULT_TIMEOUT,
+      USER_AGENT:
+        Env.DEFAULT_DOCTOR_WHO_UNIVERSE_USER_AGENT || Env.DEFAULT_USER_AGENT,
       SUPPORTED_SERVICES: [],
-      DESCRIPTION: 'Anime catalog using Kitsu',
+      DESCRIPTION:
+        'The complete Doctor Who universe, including Classic and New Who episodes, specials, minisodes, prequels, and spinoffs in original UK broadcast order.',
       OPTIONS: options,
       SUPPORTED_STREAM_TYPES: [],
       SUPPORTED_RESOURCES: supportedResources,
@@ -57,7 +73,7 @@ export class AnimeKitsuPreset extends Preset {
   ): Addon {
     const baseUrl = options.url
       ? new URL(options.url).origin
-      : Env.ANIME_KITSU_URL;
+      : Env.DOCTOR_WHO_UNIVERSE_URL;
     return {
       name: options.name || this.METADATA.NAME,
       identifyingName: options.name || this.METADATA.NAME,
