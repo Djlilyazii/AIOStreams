@@ -251,6 +251,7 @@ const CatalogModification = z.object({
   onlyOnDiscover: z.boolean().optional(), // only show the catalog on the discover page
   enabled: z.boolean().optional(), // enable or disable the catalog
   rpdb: z.boolean().optional(), // use rpdb for posters if supported
+  overrideType: z.string().min(1).optional(), // override the type of the catalog
   hideable: z.boolean().optional(), // hide the catalog from the home page
   addonName: z.string().min(1).optional(), // the name of the addon that provides the catalog
 });
@@ -330,6 +331,7 @@ export const UserDataSchema = z.object({
   excludeUncachedFromServices: z.array(z.string().min(1)).optional(),
   excludeUncachedFromStreamTypes: z.array(StreamTypes).optional(),
   excludeUncachedMode: z.enum(['or', 'and']).optional(),
+  excludedFilterConditions: z.array(z.string().min(1).max(1000)).optional(),
   groups: z
     .array(
       z.object({
@@ -573,7 +575,7 @@ export const MetaSchema = MetaPreviewSchema.extend({
   background: z.string().min(1).optional(),
   logo: z.string().optional(),
   videos: z.array(MetaVideoSchema).optional(),
-  runtime: z.string().optional(),
+  runtime: z.coerce.string().optional(),
   language: z.string().min(1).optional(),
   country: z.string().optional(),
   awards: z.string().min(1).optional(),
@@ -617,7 +619,7 @@ const ParsedFileSchema = z.object({
   audioTags: z.array(z.string()),
   languages: z.array(z.string()),
   title: z.string().optional(),
-  year: z.string().optional(),
+  year: z.coerce.string().optional(),
   season: z.number().optional(),
   seasons: z.array(z.number()).optional(),
   episode: z.number().optional(),
@@ -627,6 +629,7 @@ const ParsedFileSchema = z.object({
 export type ParsedFile = z.infer<typeof ParsedFileSchema>;
 
 export const ParsedStreamSchema = z.object({
+  id: z.string().min(1),
   proxied: z.boolean().optional(),
   addon: AddonSchema,
   parsedFile: ParsedFileSchema.optional(),
@@ -682,7 +685,10 @@ export const ParsedStreamSchema = z.object({
   originalDescription: z.string().optional(),
 });
 
+export const ParsedStreams = z.array(ParsedStreamSchema);
+
 export type ParsedStream = z.infer<typeof ParsedStreamSchema>;
+export type ParsedStreams = z.infer<typeof ParsedStreams>;
 
 export const AIOStream = StreamSchema.extend({
   streamData: z.object({
@@ -829,3 +835,8 @@ const StatusResponseSchema = z.object({
 export type StatusResponse = z.infer<typeof StatusResponseSchema>;
 export type PresetMetadata = z.infer<typeof PresetMetadataSchema>;
 export type PresetMinimalMetadata = z.infer<typeof PresetMinimalMetadataSchema>;
+
+export const RPDBIsValidResponse = z.object({
+  valid: z.boolean(),
+});
+export type RPDBIsValidResponse = z.infer<typeof RPDBIsValidResponse>;

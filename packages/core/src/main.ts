@@ -42,7 +42,10 @@ import {
   safeRegexTest,
 } from './utils/regex';
 import { isMatch } from 'super-regex';
-import { ConditionParser } from './parser/conditions';
+import {
+  GroupConditionParser,
+  SelectConditionParser,
+} from './parser/conditions';
 import { RPDB } from './utils/rpdb';
 import { FeatureControl } from './utils/feature';
 const logger = createLogger('core');
@@ -264,6 +267,17 @@ export class AIOStreams {
     // step 2
     // get the actual catalog id from the id
     const actualCatalogId = id.split('.').slice(1).join('.');
+    let modification;
+    if (this.userData.catalogModifications) {
+      modification = this.userData.catalogModifications.find(
+        (mod) =>
+          mod.id === id && (mod.type === type || mod.overrideType === type)
+      );
+    }
+    if (modification?.overrideType) {
+      // reset the type from the request (which is the overriden type) to the actual type
+      type = modification.type;
+    }
     // step 3
     // get the catalog from the addon
     let catalog;
@@ -292,28 +306,24 @@ export class AIOStreams {
     );
 
     // apply catalog modifications
-    if (this.userData.catalogModifications) {
-      const modification = this.userData.catalogModifications.find(
-        (mod) => mod.id === id && mod.type === type
-      );
-      if (modification) {
-        if (modification.shuffle && !(extras && extras.includes('search'))) {
-          // shuffle the catalog array  if it is not a search
-          catalog = catalog.sort(() => Math.random() - 0.5);
-        }
-        if (modification.rpdb && this.userData.rpdbApiKey) {
-          const rpdb = new RPDB(this.userData.rpdbApiKey);
-          catalog = catalog.map((item) => {
-            const posterUrl = rpdb.getPosterUrl(
-              type,
-              (item as any).imdb_id || item.id
-            );
-            if (posterUrl) {
-              item.poster = posterUrl;
-            }
-            return item;
-          });
-        }
+
+    if (modification) {
+      if (modification.shuffle && !(extras && extras.includes('search'))) {
+        // shuffle the catalog array  if it is not a search
+        catalog = catalog.sort(() => Math.random() - 0.5);
+      }
+      if (modification.rpdb && this.userData.rpdbApiKey) {
+        const rpdb = new RPDB(this.userData.rpdbApiKey);
+        catalog = catalog.map((item) => {
+          const posterUrl = rpdb.getPosterUrl(
+            type,
+            (item as any).imdb_id || item.id
+          );
+          if (posterUrl) {
+            item.poster = posterUrl;
+          }
+          return item;
+        });
       }
     }
 
@@ -344,8 +354,15 @@ export class AIOStreams {
     id: string
   ): Promise<AIOStreamsResponse<Meta | null>> {
     logger.info(`Handling meta request`, { type, id });
-    // step 1
-    // First try to find an addon that has a matching idPrefix
+
+    // Build prioritized list of candidate addons (naturally ordered by priority)
+    const candidates: Array<{
+      instanceId: string;
+      addon: any;
+      reason: string;
+    }> = [];
+
+    // Step 1: Find addons with matching idPrefix (added first = higher priority)
     for (const [instanceId, resources] of Object.entries(
       this.supportedResources
     )) {
@@ -355,90 +372,113 @@ export class AIOStreams {
           r.types.includes(type) &&
           r.idPrefixes?.some((prefix) => id.startsWith(prefix))
       );
+
       if (resource) {
         const addon = this.getAddon(instanceId);
-        if (!addon) {
-          continue;
-        }
-        logger.info(`Found addon with matching id prefix for meta resource`, {
-          addonName: addon.name,
-          addonInstanceId: instanceId,
-        });
-        try {
-          const meta = await new Wrapper(addon).getMeta(type, id);
-          return {
-            success: true,
-            data: meta,
-            errors: [],
-          };
-        } catch (error) {
-          await this.handlePossibleRecursiveError(error);
-          logger.error(`Error getting meta from addon ${addon.name}`, {
-            error: error instanceof Error ? error.message : String(error),
+        if (addon) {
+          candidates.push({
+            instanceId,
+            addon,
+            reason: 'matching id prefix',
           });
-          return {
-            success: false,
-            data: null,
-            errors: [
-              {
-                title: `[‚ùå] ${addon.name}`,
-                description:
-                  error instanceof Error ? error.message : String(error),
-              },
-            ],
-          };
         }
       }
     }
 
-    // step 2
-    // If no matching prefix found, use any addon that supports meta for this type
+    // Step 2: Find addons that support meta for this type (added second = lower priority)
     for (const [instanceId, resources] of Object.entries(
       this.supportedResources
     )) {
+      // Skip if already added with higher priority
+      if (candidates.some((c) => c.instanceId === instanceId)) {
+        continue;
+      }
+
+      // look for addons that support the type, but don't have an id prefix
       const resource = resources.find(
-        (r) => r.name === 'meta' && r.types.includes(type)
+        (r) =>
+          r.name === 'meta' && r.types.includes(type) && !r.idPrefixes?.length
       );
+
       if (resource) {
         const addon = this.getAddon(instanceId);
-        if (!addon) {
-          continue;
-        }
-        logger.info(`Using fallback addon for meta resource`, {
-          addonName: addon.name,
-          addonInstanceId: instanceId,
-        });
-        try {
-          const meta = await new Wrapper(addon).getMeta(type, id);
-          return {
-            success: true,
-            data: meta,
-            errors: [],
-          };
-        } catch (error) {
-          await this.handlePossibleRecursiveError(error);
-          logger.error(`Error getting meta from addon ${addon.name}`, {
-            error: error instanceof Error ? error.message : String(error),
+        if (addon) {
+          candidates.push({
+            instanceId,
+            addon,
+            reason: 'general type support',
           });
-          return {
-            success: false,
-            data: null,
-            errors: [
-              {
-                title: `[‚ùå] ${addon.name}`,
-                description:
-                  error instanceof Error ? error.message : String(error),
-              },
-            ],
-          };
         }
       }
     }
 
-    logger.error(`No addon found supporting meta resource for type ${type}`);
-    throw new Error(`No addon found supporting meta resource for type ${type}`);
-  }
+    if (candidates.length === 0) {
+      logger.warn(`No supported addon was found for the requested meta`, {
+        type,
+        id,
+      });
+      return {
+        success: false,
+        data: null,
+        errors: [],
+      };
+    }
 
+    // Try each candidate in order, collecting errors
+    const errors: Array<{ title: string; description: string }> = [];
+
+    for (const candidate of candidates) {
+      logger.info(`Trying addon for meta resource`, {
+        addonName: candidate.addon.name,
+        addonInstanceId: candidate.instanceId,
+        reason: candidate.reason,
+      });
+
+      try {
+        const meta = await new Wrapper(candidate.addon).getMeta(type, id);
+        logger.info(`Successfully got meta from addon`, {
+          addonName: candidate.addon.name,
+          addonInstanceId: candidate.instanceId,
+        });
+
+        return {
+          success: true,
+          data: meta,
+          errors: [], // Clear errors on success
+        };
+      } catch (error) {
+        await this.handlePossibleRecursiveError(error);
+
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        logger.warn(`Failed to get meta from addon ${candidate.addon.name}`, {
+          error: errorMessage,
+          reason: candidate.reason,
+        });
+
+        errors.push({
+          title: `[‚ùå] ${candidate.addon.name}`,
+          description: errorMessage,
+        });
+      }
+    }
+
+    // If we reach here, all addons failed
+    logger.error(
+      `All ${candidates.length} candidate addons failed for meta request`,
+      {
+        type,
+        id,
+        candidateCount: candidates.length,
+      }
+    );
+
+    return {
+      success: false,
+      data: null,
+      errors,
+    };
+  }
   // subtitle resource
   public async getSubtitles(
     type: string,
@@ -653,20 +693,26 @@ export class AIOStreams {
         const existing = this.finalResources.find(
           (r) => r.name === resource.name
         );
+        // NOTE: we cannot push idPrefixes in the scenario that the user adds multiple addons that provide meta for example,
+        // and one of them has defined idPrefixes, while the other hasn't
+        // in this case, stremio assumes we only support that resource for the specified id prefix and then
+        // will not send a request to AIOStreams for other id prefixes even though our other addon that didn't specify
+        // an id prefix technically says it supports all ids
         if (existing) {
           existing.types = [...new Set([...existing.types, ...resource.types])];
-          if (resource.idPrefixes) {
-            existing.idPrefixes = existing.idPrefixes || [];
-            existing.idPrefixes = [
-              ...new Set([...existing.idPrefixes, ...resource.idPrefixes]),
-            ];
-          }
+          // if (resource.idPrefixes) {
+          //   existing.idPrefixes = existing.idPrefixes || [];
+          //   existing.idPrefixes = [
+          //     ...new Set([...existing.idPrefixes, ...resource.idPrefixes]),
+          //   ];
+          // }
         } else {
           this.finalResources.push({
             ...resource,
-            idPrefixes: resource.idPrefixes
-              ? [...resource.idPrefixes]
-              : undefined,
+            idPrefixes: undefined,
+            // idPrefixes: resource.idPrefixes
+            //   ? [...resource.idPrefixes]
+            //   : undefined,
           });
         }
       }
@@ -775,6 +821,9 @@ export class AIOStreams {
             if (genreExtra) {
               genreExtra.isRequired = true;
             }
+          }
+          if (modification?.overrideType !== undefined) {
+            catalog.type = modification.overrideType;
           }
           return catalog;
         });
@@ -1046,7 +1095,7 @@ ${errorStreams.length > 0 ? `  ‚ùå Errors     : ${errorStreams.map((s) => `    ‚
         if (!group.condition || !group.addons.length) continue;
 
         try {
-          const parser = new ConditionParser(
+          const parser = new GroupConditionParser(
             previousGroupStreams,
             parsedStreams,
             previousGroupTimeTaken,
@@ -1161,6 +1210,7 @@ ${errorStreams.length > 0 ? `  ‚ùå Errors     : ${errorStreams.map((s) => `    ‚
       requiredKeywords: { total: 0, details: {} },
       requiredSeeders: { total: 0, details: {} },
       excludedSeeders: { total: 0, details: {} },
+      excludedFilterCondition: { total: 0, details: {} },
       size: { total: 0, details: {} },
     };
 
@@ -1168,7 +1218,7 @@ ${errorStreams.length > 0 ? `  ‚ùå Errors     : ${errorStreams.map((s) => `    ‚
     const isRegexAllowed = FeatureControl.isRegexAllowed(this.userData);
 
     let titles: string[] = [];
-    if (this.userData.titleMatching && TYPES.includes(type as any)) {
+    if (this.userData.titleMatching?.enabled && TYPES.includes(type as any)) {
       try {
         titles = await new TMDBMetadata(
           this.userData.tmdbAccessToken
@@ -1191,15 +1241,12 @@ ${errorStreams.length > 0 ? `  ‚ùå Errors     : ${errorStreams.map((s) => `    ‚
       if (!titleMatchingOptions || !titleMatchingOptions.enabled) {
         return true;
       }
+
       if (titles.length === 0) {
         // don't filter out streams if no titles could be found
         return true;
       }
       const streamTitle = stream.parsedFile?.title;
-      if (!streamTitle) {
-        // if a specific stream doesn't have a title, filter it out.
-        return false;
-      }
 
       // now check if we need to check this stream based on the addon and request type
       if (
@@ -1216,6 +1263,11 @@ ${errorStreams.length > 0 ? `  ‚ùå Errors     : ${errorStreams.map((s) => `    ‚
         return true;
       }
 
+      if (!streamTitle) {
+        // if a specific stream doesn't have a title, filter it out.
+        return false;
+      }
+
       if (titleMatchingOptions.mode === 'exact') {
         // the stream title should be an exact match of a valid title
         return titles.some(
@@ -1223,10 +1275,9 @@ ${errorStreams.length > 0 ? `  ‚ùå Errors     : ${errorStreams.map((s) => `    ‚
         );
       } else {
         // a valid title should be present somewhere in the stream title
-        const valid = titles.some((title) =>
+        return titles.some((title) =>
           normaliseTitle(streamTitle).includes(normaliseTitle(title))
         );
-        return valid;
       }
     };
 
@@ -1989,7 +2040,45 @@ ${errorStreams.length > 0 ? `  ‚ùå Errors     : ${errorStreams.map((s) => `    ‚
     };
 
     const filterResults = await Promise.all(streams.map(shouldKeepStream));
-    const filteredStreams = streams.filter((_, index) => filterResults[index]);
+
+    let filteredStreams = streams.filter((_, index) => filterResults[index]);
+
+    if (this.userData.excludedFilterConditions) {
+      const parser = new SelectConditionParser();
+      const streamsToRemove = new Set<string>(); // Track actual stream objects to be removed
+
+      for (const condition of this.userData.excludedFilterConditions) {
+        try {
+          // Always select from the current filteredStreams (not yet modified by this loop)
+          const selectedStreams = await parser.select(
+            filteredStreams.filter((stream) => !streamsToRemove.has(stream.id)),
+            condition
+          );
+
+          // Track these stream objects for removal
+          selectedStreams.forEach((stream) => streamsToRemove.add(stream.id));
+
+          // Update skip reasons for this condition (only count newly selected streams)
+          if (selectedStreams.length > 0) {
+            skipReasons.excludedFilterCondition.total += selectedStreams.length;
+            skipReasons.excludedFilterCondition.details[condition] =
+              selectedStreams.length;
+          }
+        } catch (error) {
+          logger.error(
+            `Failed to apply excluded filter condition "${condition}": ${error instanceof Error ? error.message : String(error)}`
+          );
+          // Continue with the next condition instead of breaking the entire loop
+        }
+      }
+
+      logger.verbose(`Streams to remove: ${streamsToRemove.size}`);
+
+      // Remove all marked streams at once, after processing all conditions
+      filteredStreams = filteredStreams.filter(
+        (stream) => !streamsToRemove.has(stream.id)
+      );
+    }
 
     // Log filter summary
     const totalFiltered = streams.length - filteredStreams.length;

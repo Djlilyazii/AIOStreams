@@ -296,11 +296,11 @@ export const Env = cleanEnv(process.env, {
   }),
 
   RECURSION_THRESHOLD_LIMIT: num({
-    default: 30,
+    default: 60,
     desc: 'Maximum number of requests to the same URL',
   }),
   RECURSION_THRESHOLD_WINDOW: num({
-    default: 5,
+    default: 10,
     desc: 'Time window for recursion threshold in seconds',
   }),
 
@@ -340,7 +340,10 @@ export const Env = cleanEnv(process.env, {
     default: 300,
     desc: 'Cache TTL for addon catalog files',
   }),
-
+  RPDB_API_KEY_VALIDITY_CACHE_TTL: num({
+    default: 604800, // 7 days
+    desc: 'Cache TTL for RPDB API key validity',
+  }),
   // configuration settings
 
   MAX_ADDONS: num({
