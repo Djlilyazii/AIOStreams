@@ -33,8 +33,8 @@ const Formatter = z.object({
   id: z.enum(constants.FORMATTERS),
   definition: z
     .object({
-      name: z.string().min(1),
-      description: z.string().min(1),
+      name: z.string().max(5000),
+      description: z.string().max(5000),
     })
     .optional(),
 });
@@ -111,8 +111,9 @@ const AddonSchema = z.object({
   manifestUrl: z.string().url(),
   enabled: z.boolean(),
   resources: ResourceList.optional(),
-  name: z.string().min(1),
-  identifyingName: z.string().min(1),
+  name: z.string(),
+  identifier: z.string().optional(), // true identifier for generating IDs
+  displayIdentifier: z.string().optional(), // identifier for display purposes
   timeout: z.number().min(1),
   library: z.boolean().optional(),
   streamPassthrough: z.boolean().optional(),
@@ -248,6 +249,7 @@ const CatalogModification = z.object({
   type: z.string().min(1), // the type of catalog modification
   name: z.string().min(1).optional(), // override the name of the catalog
   shuffle: z.boolean().optional(), // shuffle the catalog
+  persistShuffleFor: z.number().min(0).max(24).optional(), // persist the shuffle for a given amount of time (in hours)
   onlyOnDiscover: z.boolean().optional(), // only show the catalog on the discover page
   enabled: z.boolean().optional(), // enable or disable the catalog
   rpdb: z.boolean().optional(), // use rpdb for posters if supported
@@ -262,7 +264,7 @@ export const UserDataSchema = z.object({
   trusted: z.boolean().optional(),
   addonPassword: z.string().min(1).optional(),
   ip: z.string().ip().optional(),
-  addonName: z.string().min(1).optional(),
+  addonName: z.string().min(1).max(300).optional(),
   addonLogo: z.string().url().optional(),
   addonBackground: z.string().url().optional(),
   addonDescription: z.string().min(1).optional(),
@@ -306,11 +308,9 @@ export const UserDataSchema = z.object({
   includedKeywords: z.array(z.string().min(1)).optional(),
   excludedKeywords: z.array(z.string().min(1)).optional(),
   preferredKeywords: z.array(z.string().min(1)).optional(),
-
   randomiseResults: z.boolean().optional(),
   enhanceResults: z.boolean().optional(),
   enhancePosters: z.boolean().optional(),
-
   excludeSeederRange: z
     .tuple([z.number().min(0), z.number().min(0)])
     .optional(),
@@ -370,6 +370,7 @@ export const UserDataSchema = z.object({
   titleMatching: z
     .object({
       mode: z.enum(['exact', 'contains']).optional(),
+      matchYear: z.boolean().optional(),
       enabled: z.boolean().optional(),
       requestTypes: z.array(z.string()).optional(),
       addons: z.array(z.string()).optional(),
@@ -387,6 +388,7 @@ export const UserDataSchema = z.object({
   services: ServiceList.optional(),
   presets: PresetList,
   catalogModifications: z.array(CatalogModification).optional(),
+  externalDownloads: z.boolean().optional(),
 });
 
 export type UserData = z.infer<typeof UserDataSchema>;
@@ -437,35 +439,37 @@ const AddonCatalogDefinitionSchema = z.object({
   name: z.string().min(1),
 });
 
-export const ManifestSchema = z.object({
-  id: z.string().min(1),
-  name: z.string().min(1),
-  description: z.string().min(1),
-  version: z.string().min(1),
-  types: z.array(z.string()),
-  idPrefixes: z.array(z.string().min(1)).optional(),
-  resources: z.array(ManifestResourceSchema),
-  catalogs: z.array(ManifestCatalogSchema),
-  addonCatalogs: z.array(AddonCatalogDefinitionSchema).optional(),
-  background: z.string().min(1).optional(),
-  logo: z.string().optional(),
-  contactEmail: z.string().min(1).optional(),
-  behaviorHints: z
-    .object({
-      adult: z.boolean().optional(),
-      p2p: z.boolean().optional(),
-      configurable: z.boolean().optional(),
-      configurationRequired: z.boolean().optional(),
-    })
-    .optional(),
-  // not part of the manifest scheme, but needed for stremio-addons.net
-  stremioAddonsConfig: z
-    .object({
-      issuer: z.string().min(1),
-      signature: z.string().min(1),
-    })
-    .optional(),
-});
+export const ManifestSchema = z
+  .object({
+    id: z.string().min(1),
+    name: z.string().min(1),
+    description: z.string().min(1),
+    version: z.string().min(1),
+    types: z.array(z.string()),
+    idPrefixes: z.array(z.string().min(1)).optional(),
+    resources: z.array(ManifestResourceSchema),
+    catalogs: z.array(ManifestCatalogSchema),
+    addonCatalogs: z.array(AddonCatalogDefinitionSchema).optional(),
+    background: z.string().min(1).or(z.null()).optional(),
+    logo: z.string().or(z.null()).optional(),
+    contactEmail: z.string().min(1).or(z.null()).optional(),
+    behaviorHints: z
+      .object({
+        adult: z.boolean().optional(),
+        p2p: z.boolean().optional(),
+        configurable: z.boolean().optional(),
+        configurationRequired: z.boolean().optional(),
+      })
+      .optional(),
+    // not part of the manifest scheme, but needed for stremio-addons.net
+    stremioAddonsConfig: z
+      .object({
+        issuer: z.string().min(1),
+        signature: z.string().min(1),
+      })
+      .optional(),
+  })
+  .passthrough();
 
 export type Manifest = z.infer<typeof ManifestSchema>;
 
@@ -485,30 +489,30 @@ export type Subtitle = z.infer<typeof SubtitleSchema>;
 
 export const StreamSchema = z
   .object({
-    url: z.string().url().optional(),
-    ytId: z.string().min(1).optional(),
+    url: z.string().url().or(z.null()).optional(),
+    ytId: z.string().min(1).or(z.null()).optional(),
     infoHash: z.string().min(1).or(z.null()).optional(),
     fileIdx: z.number().or(z.null()).optional(),
-    externalUrl: z.string().min(1).optional(),
-    name: z.string().min(1).optional(),
-    title: z.string().min(1).optional(),
-    description: z.string().min(1).optional(),
-    subtitles: z.array(SubtitleSchema).optional(),
-    sources: z.array(z.string().min(1)).optional(),
+    externalUrl: z.string().min(1).or(z.null()).optional(),
+    name: z.string().min(1).or(z.null()).optional(),
+    title: z.string().min(1).or(z.null()).optional(),
+    description: z.string().min(1).or(z.null()).optional(),
+    subtitles: z.array(SubtitleSchema).or(z.null()).optional(),
+    sources: z.array(z.string().min(1)).or(z.null()).optional(),
     behaviorHints: z
       .object({
-        countryWhitelist: z.array(z.string().length(3)).optional(),
-        notWebReady: z.boolean().optional(),
-        bingeGroup: z.string().min(1).optional(),
+        countryWhitelist: z.array(z.string().length(3)).or(z.null()).optional(),
+        notWebReady: z.boolean().or(z.null()).optional(),
+        bingeGroup: z.string().min(1).or(z.null()).optional(),
         proxyHeaders: z
           .object({
             request: z.record(z.string().min(1), z.string().min(1)).optional(),
             response: z.record(z.string().min(1), z.string().min(1)).optional(),
           })
           .optional(),
-        videoHash: z.string().min(1).optional(),
-        videoSize: z.number().optional(),
-        filename: z.string().min(1).optional(),
+        videoHash: z.string().min(1).or(z.null()).optional(),
+        videoSize: z.number().or(z.null()).optional(),
+        filename: z.string().min(1).or(z.null()).optional(),
       })
       .optional(),
   })
@@ -522,70 +526,80 @@ export type StreamResponse = z.infer<typeof StreamResponseSchema>;
 
 export type Stream = z.infer<typeof StreamSchema>;
 
-const TrailerSchema = z.object({
-  source: z.string().min(1),
-  type: z.enum(['Trailer']),
-});
+const TrailerSchema = z
+  .object({
+    source: z.string().min(1),
+    type: z.enum(['Trailer']),
+  })
+  .passthrough();
 
-const MetaLinkSchema = z.object({
-  name: z.string().min(1),
-  category: z.string().min(1),
-  url: z.string().url().or(z.string().startsWith('stremio:///')),
-});
+const MetaLinkSchema = z
+  .object({
+    name: z.string().min(1),
+    category: z.string().min(1),
+    url: z.string().url().or(z.string().startsWith('stremio:///')),
+  })
+  .passthrough();
 
-const MetaVideoSchema = z.object({
-  id: z.string().min(1),
-  title: z.string().or(z.null()).optional(),
-  name: z.string().or(z.null()).optional(),
-  released: z.string().datetime().optional(),
-  thumbnail: z.string().url().or(z.null()).optional(),
-  streams: z.array(StreamSchema).optional(),
-  available: z.boolean().or(z.null()).optional(),
-  episode: z.number().or(z.null()).optional(),
-  season: z.number().or(z.null()).optional(),
-  trailers: z.array(TrailerSchema).optional(),
-  overview: z.string().or(z.null()).optional(),
-});
+const MetaVideoSchema = z
+  .object({
+    id: z.string().min(1),
+    title: z.string().or(z.null()).optional(),
+    name: z.string().or(z.null()).optional(),
+    released: z.string().datetime().or(z.null()).optional(),
+    thumbnail: z.string().url().or(z.null()).optional(),
+    streams: z.array(StreamSchema).or(z.null()).optional(),
+    available: z.boolean().or(z.null()).optional(),
+    episode: z.number().or(z.null()).optional(),
+    season: z.number().or(z.null()).optional(),
+    trailers: z.array(TrailerSchema).or(z.null()).optional(),
+    overview: z.string().or(z.null()).optional(),
+  })
+  .passthrough();
 
-export const MetaPreviewSchema = z.object({
-  id: z.string().min(1),
-  type: z.string().min(1),
-  name: z.string().optional(),
-  poster: z.string().optional(),
-  posterShape: z.enum(['square', 'poster', 'landscape', 'regular']).optional(),
-  // discover sidebar
-  //@deprecated use links instead
-  genres: z.array(z.string()).optional(),
-  imdbRating: z.string().or(z.null()).or(z.number()).optional(),
-  releaseInfo: z.string().or(z.number()).or(z.null()).optional(),
-  //@deprecated
-  director: z.array(z.string()).or(z.null()).optional(),
-  //@deprecated
-  cast: z.array(z.string()).or(z.null()).optional(),
-  // background: z.string().min(1).optional(),
-  // logo: z.string().min(1).optional(),
-  description: z.string().or(z.null()).optional(),
-  trailers: z.array(TrailerSchema).optional(),
-  links: z.array(MetaLinkSchema).optional(),
-  // released: z.string().datetime().optional(),
-});
+export const MetaPreviewSchema = z
+  .object({
+    id: z.string().min(1),
+    type: z.string().min(1),
+    name: z.string().or(z.null()).optional(),
+    poster: z.string().or(z.null()).optional(),
+    posterShape: z
+      .enum(['square', 'poster', 'landscape', 'regular'])
+      .optional(),
+    // discover sidebar
+    //@deprecated use links instead
+    genres: z.array(z.string()).or(z.null()).optional(),
+    imdbRating: z.string().or(z.null()).or(z.number()).optional(),
+    releaseInfo: z.string().or(z.number()).or(z.null()).optional(),
+    //@deprecated
+    director: z.array(z.string()).or(z.null()).optional(),
+    //@deprecated
+    cast: z.array(z.string()).or(z.null()).optional(),
+    // background: z.string().min(1).optional(),
+    // logo: z.string().min(1).optional(),
+    description: z.string().or(z.null()).optional(),
+    trailers: z.array(TrailerSchema).or(z.null()).optional(),
+    links: z.array(MetaLinkSchema).or(z.null()).optional(),
+    // released: z.string().datetime().optional(),
+  })
+  .passthrough();
 
 export const MetaSchema = MetaPreviewSchema.extend({
-  poster: z.string().min(1).optional(),
-  background: z.string().min(1).optional(),
-  logo: z.string().optional(),
-  videos: z.array(MetaVideoSchema).optional(),
-  runtime: z.coerce.string().optional(),
-  language: z.string().min(1).optional(),
-  country: z.string().optional(),
-  awards: z.string().min(1).optional(),
-  website: z.string().url().optional(),
+  poster: z.string().or(z.null()).optional(),
+  background: z.string().or(z.null()).optional(),
+  logo: z.string().or(z.null()).optional(),
+  videos: z.array(MetaVideoSchema).or(z.null()).optional(),
+  runtime: z.coerce.string().or(z.null()).optional(),
+  language: z.string().or(z.null()).optional(),
+  country: z.string().or(z.null()).optional(),
+  awards: z.string().or(z.null()).optional(),
+  website: z.string().url().or(z.null()).optional(),
   behaviorHints: z
     .object({
       defaultVideoId: z.string().or(z.null()).optional(),
     })
     .optional(),
-});
+}).passthrough();
 
 export const MetaResponseSchema = z.object({
   meta: MetaSchema,
@@ -598,11 +612,13 @@ export type CatalogResponse = z.infer<typeof CatalogResponseSchema>;
 export type Meta = z.infer<typeof MetaSchema>;
 export type MetaPreview = z.infer<typeof MetaPreviewSchema>;
 
-export const AddonCatalogSchema = z.object({
-  transportName: z.literal('http'),
-  transportUrl: z.string().url(),
-  manifest: ManifestSchema,
-});
+export const AddonCatalogSchema = z
+  .object({
+    transportName: z.literal('http'),
+    transportUrl: z.string().url(),
+    manifest: ManifestSchema,
+  })
+  .passthrough();
 export const AddonCatalogResponseSchema = z.object({
   addons: z.array(AddonCatalogSchema),
 });
@@ -649,8 +665,8 @@ export const ParsedStreamSchema = z.object({
   age: z.string().optional(),
   torrent: z
     .object({
-      infoHash: z.string().min(1).or(z.null()).optional(),
-      fileIdx: z.number().or(z.null()).optional(),
+      infoHash: z.string().min(1).optional(),
+      fileIdx: z.number().optional(),
       seeders: z.number().optional(),
       sources: z.array(z.string().min(1)).optional(), // array of tracker urls and DHT nodes
     })
@@ -725,8 +741,8 @@ export const AIOStream = StreamSchema.extend({
     age: z.string().optional(),
     torrent: z
       .object({
-        infoHash: z.string().min(1).or(z.null()).optional(),
-        fileIdx: z.number().or(z.null()).optional(),
+        infoHash: z.string().min(1).optional(),
+        fileIdx: z.number().optional(),
         seeders: z.number().optional(),
         sources: z.array(z.string().min(1)).optional(), // array of tracker urls and DHT nodes
       })
@@ -752,7 +768,7 @@ const PresetMetadataSchema = z.object({
       disabled: z.boolean(),
     })
     .optional(),
-  LOGO: z.string(),
+  LOGO: z.string().optional(),
   DESCRIPTION: z.string(),
   URL: z.string(),
   TIMEOUT: z.number(),
@@ -766,7 +782,7 @@ const PresetMetadataSchema = z.object({
 const PresetMinimalMetadataSchema = z.object({
   ID: z.string(),
   NAME: z.string(),
-  LOGO: z.string(),
+  LOGO: z.string().optional(),
   DESCRIPTION: z.string(),
   URL: z.string(),
   DISABLED: z

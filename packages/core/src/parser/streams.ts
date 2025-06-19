@@ -1,9 +1,9 @@
 import { Stream, ParsedStream, Addon } from '../db';
 import { constants, createLogger, FULL_LANGUAGE_MAPPING } from '../utils';
 import FileParser from './file';
-import crypto from 'crypto';
 const logger = createLogger('parser');
 class StreamParser {
+  private count = 0;
   get errorRegexes(): { pattern: RegExp; message: string }[] | undefined {
     return [
       {
@@ -56,15 +56,15 @@ class StreamParser {
       id: this.getRandomId(),
       addon: this.addon,
       type: 'http',
-      url: this.applyUrlModifications(stream.url),
-      externalUrl: stream.externalUrl,
-      ytId: stream.ytId,
+      url: this.applyUrlModifications(stream.url ?? undefined),
+      externalUrl: stream.externalUrl ?? undefined,
+      ytId: stream.ytId ?? undefined,
       requestHeaders: stream.behaviorHints?.proxyHeaders?.request,
       responseHeaders: stream.behaviorHints?.proxyHeaders?.response,
-      notWebReady: stream.behaviorHints?.notWebReady,
-      videoHash: stream.behaviorHints?.videoHash,
-      originalName: stream.name,
-      originalDescription: stream.description || stream.title,
+      notWebReady: stream.behaviorHints?.notWebReady ?? undefined,
+      videoHash: stream.behaviorHints?.videoHash ?? undefined,
+      originalName: stream.name ?? undefined,
+      originalDescription: (stream.description || stream.title) ?? undefined,
     };
 
     stream.description = stream.description || stream.title;
@@ -93,15 +93,18 @@ class StreamParser {
     parsedStream.age = this.getAge(stream, parsedStream);
     parsedStream.message = this.getMessage(stream, parsedStream);
 
-    if (parsedStream.filename) {
-      parsedStream.parsedFile = FileParser.parse(parsedStream.filename);
-      parsedStream.parsedFile.languages = Array.from(
+    parsedStream.parsedFile = {
+      visualTags: [],
+      audioTags: [],
+      audioChannels: [],
+      ...(parsedStream.filename ? FileParser.parse(parsedStream.filename) : {}),
+      languages: Array.from(
         new Set([
-          ...parsedStream.parsedFile.languages,
+          ...(parsedStream.parsedFile?.languages ?? []),
           ...this.getLanguages(stream, parsedStream),
         ])
-      );
-    }
+      ),
+    };
 
     if (parsedStream.folderName && parsedStream.parsedFile) {
       const parsedFolder = FileParser.parse(parsedStream.folderName);
@@ -114,18 +117,18 @@ class StreamParser {
     parsedStream.torrent = {
       infoHash:
         parsedStream.type === 'p2p'
-          ? stream.infoHash
+          ? (stream.infoHash ?? undefined)
           : this.getInfoHash(stream, parsedStream),
       seeders: this.getSeeders(stream, parsedStream),
-      sources: stream.sources,
-      fileIdx: stream.fileIdx,
+      sources: stream.sources ?? undefined,
+      fileIdx: stream.fileIdx ?? undefined,
     };
 
     return parsedStream;
   }
 
   protected getRandomId(): string {
-    return crypto.randomUUID();
+    return `${this.addon.instanceId}-${this.count++}`;
   }
 
   protected applyUrlModifications(url: string | undefined): string | undefined {
@@ -398,13 +401,17 @@ class StreamParser {
           (language) => language.flag === flag
         );
 
-        const language = (
-          possibleLanguages.find((l) => l.flag_priority) || possibleLanguages[0]
-        ).english_name
+        const language =
+          possibleLanguages.find((l) => l.flag_priority) ||
+          possibleLanguages[0];
+        const languageName = (
+          language?.internal_english_name || language?.english_name
+        )
           ?.split('(')?.[0]
           ?.trim();
-        if (language && constants.LANGUAGES.includes(language as any)) {
-          return language;
+
+        if (languageName && constants.LANGUAGES.includes(languageName as any)) {
+          return languageName;
         }
         return undefined;
       })

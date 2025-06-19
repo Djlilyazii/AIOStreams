@@ -5,6 +5,34 @@ import { constants, ServiceId } from '../utils';
 import { StreamParser } from '../parser';
 
 class StremthruTorzStreamParser extends StreamParser {
+  protected override applyUrlModifications(
+    url: string | undefined
+  ): string | undefined {
+    if (!url) {
+      return url;
+    }
+    if (
+      Env.FORCE_STREMTHRU_TORZ_HOSTNAME !== undefined ||
+      Env.FORCE_STREMTHRU_TORZ_PORT !== undefined ||
+      Env.FORCE_STREMTHRU_TORZ_PROTOCOL !== undefined
+    ) {
+      // modify the URL according to settings, needed when using a local URL for requests but a public stream URL is needed.
+      const urlObj = new URL(url);
+
+      if (Env.FORCE_STREMTHRU_TORZ_PROTOCOL !== undefined) {
+        urlObj.protocol = Env.FORCE_STREMTHRU_TORZ_PROTOCOL;
+      }
+      if (Env.FORCE_STREMTHRU_TORZ_PORT !== undefined) {
+        urlObj.port = Env.FORCE_STREMTHRU_TORZ_PORT.toString();
+      }
+      if (Env.FORCE_STREMTHRU_TORZ_HOSTNAME !== undefined) {
+        urlObj.hostname = Env.FORCE_STREMTHRU_TORZ_HOSTNAME;
+      }
+      return urlObj.toString();
+    }
+    return url;
+  }
+
   // ensure release groups aren't misidentified as indexers
   protected override getIndexer(
     stream: Stream,
@@ -159,9 +187,18 @@ export class StremthruTorzPreset extends Preset {
   ): Addon {
     return {
       name: options.name || this.METADATA.NAME,
-      identifyingName: `${options.name || this.METADATA.NAME} ${serviceIds
+      displayIdentifier: serviceIds
         .map((id) => this.getServiceDetails(id).shortName)
-        .join(' | ')}`,
+        .join(' | '),
+      identifier:
+        serviceIds.length > 0
+          ? serviceIds.includes('p2p')
+            ? 'p2p'
+            : serviceIds.length > 1
+              ? 'multi'
+              : this.getServiceDetails(serviceIds[0]).code
+          : undefined,
+
       manifestUrl: this.generateManifestUrl(userData, options, serviceIds),
       enabled: true,
       resources: options.resources || this.METADATA.SUPPORTED_RESOURCES,

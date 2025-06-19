@@ -62,6 +62,8 @@ import {
 } from '../ui/accordion';
 import { FaArrowRightLong, FaRankingStar, FaShuffle } from 'react-icons/fa6';
 import { PiStarFill, PiStarBold } from 'react-icons/pi';
+import { IoExtensionPuzzle } from 'react-icons/io5';
+import { NumberInput } from '../ui/number-input';
 
 interface CatalogModification {
   id: string;
@@ -70,6 +72,7 @@ interface CatalogModification {
   overrideType?: string;
   enabled?: boolean;
   shuffle?: boolean;
+  persistShuffleFor?: number;
   rpdb?: boolean;
   onlyOnDiscover?: boolean;
   hideable?: boolean;
@@ -231,9 +234,9 @@ function Content() {
   const serviceOptions = Object.values(constants.SERVICE_DETAILS).map(
     (service) => ({ label: service.name, value: service.id })
   );
-  const streamTypeOptions = (constants.STREAM_TYPES || []).map(
-    (type: string) => ({ label: type, value: type })
-  );
+  const streamTypeOptions = (constants.STREAM_TYPES || [])
+    .filter((type) => type !== 'error')
+    .map((type: string) => ({ label: type, value: type }));
   const resourceOptions = (constants.RESOURCES || []).map((res: string) => ({
     label: res,
     value: res,
@@ -610,12 +613,16 @@ function AddonCard({
           <div className="w-28 h-28 min-w-[7rem] min-h-[7rem] flex items-center justify-center rounded-lg bg-gray-900 text-[--brand] text-4xl">
             <PlusIcon className="w-12 h-12" />
           </div>
-        ) : (
+        ) : preset.LOGO ? (
           <img
             src={preset.LOGO}
             alt={preset.NAME}
             className="w-28 h-28 min-w-[7rem] min-h-[7rem] object-contain rounded-lg bg-gray-800"
           />
+        ) : (
+          <div className="w-28 h-28 min-w-[7rem] min-h-[7rem] flex items-center justify-center rounded-lg bg-gray-900 text-[--brand] text-4xl">
+            <IoExtensionPuzzle className="w-15 h-15" />
+          </div>
         )}
         <div className="flex flex-col min-w-0 flex-1">
           <div className="font-bold text-lg mb-1 truncate">{preset.NAME}</div>
@@ -1597,6 +1604,38 @@ function SortableCatalogItem({
                         }));
                       }}
                     />
+
+                    <div className="flex flex-col md:flex-row md:items-center gap-2 -mx-2 px-2 hover:bg-[var(--subtle-highlight)] rounded-md">
+                      <div className="flex-1 py-2">
+                        <label className="text-sm font-medium">
+                          Persist Shuffle For
+                        </label>
+                        <p className="text-xs text-[--muted]">
+                          The amount of hours to keep a given shuffled catalog
+                          order before shuffling again. Defaults to 0 (Shuffle
+                          on every request).
+                        </p>
+                      </div>
+                      <div className="w-full md:w-32 py-2">
+                        <NumberInput
+                          value={catalog.persistShuffleFor ?? 0}
+                          min={0}
+                          step={1}
+                          max={24}
+                          onValueChange={(value) => {
+                            setUserData((prev) => ({
+                              ...prev,
+                              catalogModifications:
+                                prev.catalogModifications?.map((c) =>
+                                  c.id === catalog.id && c.type === catalog.type
+                                    ? { ...c, persistShuffleFor: value }
+                                    : c
+                                ),
+                            }));
+                          }}
+                        />
+                      </div>
+                    </div>
 
                     <Switch
                       label="RPDB"

@@ -21,6 +21,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '../ui/accordion';
+import { PasswordInput } from '../ui/password-input';
 
 export function SaveInstallMenu() {
   return (
@@ -71,25 +72,8 @@ function Content() {
       return;
     }
 
-    if (newPassword.length < 8) {
-      requirements.push('Password must be at least 8 characters long');
-    }
-
-    if (!/[a-z]/.test(newPassword)) {
-      requirements.push('Password must contain at least one lowercase letter');
-    }
-
-    if (!/[A-Z]/.test(newPassword)) {
-      requirements.push('Password must contain at least one uppercase letter');
-    }
-
-    if (!/\d/.test(newPassword)) {
-      requirements.push('Password must contain at least one number');
-    }
-    if (!/[@$!%*?&\-\._#~^()+=<>,;:'"`{}[\]|\\]/.test(newPassword)) {
-      requirements.push(
-        'Password must contain at least one special character (@$!%*?&-._#~^()+=<>,;:\'"`{}[]|\\)'
-      );
+    if (newPassword.length < 6) {
+      requirements.push('Password must be at least 6 characters long');
     }
 
     setPasswordRequirements(requirements);
@@ -264,14 +248,14 @@ function Content() {
                     }
                   />
                 )}
-                <TextInput
+                <PasswordInput
                   label="Password"
                   id="password"
-                  type="password"
                   value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
+                  onValueChange={(value) => setNewPassword(value)}
                   placeholder="Enter a password to protect your configuration"
                   required
+                  autoComplete="new-password"
                 />
                 <p className="text-sm text-[--muted] mt-1">
                   This is the password you will use to access and update your
@@ -281,9 +265,8 @@ function Content() {
               </div>
               {status?.settings.protected && (
                 <>
-                  <TextInput
+                  <PasswordInput
                     label="Addon Password"
-                    type="password"
                     value={addonPassword}
                     required
                     placeholder="Enter the password for this instance"
@@ -344,10 +327,9 @@ function Content() {
               <form onSubmit={handleSave}>
                 {status?.settings.protected && (
                   <>
-                    <TextInput
+                    <PasswordInput
                       label="Addon Password"
                       id="password"
-                      type="password"
                       value={addonPassword}
                       required
                       placeholder="Enter the password for this instance"

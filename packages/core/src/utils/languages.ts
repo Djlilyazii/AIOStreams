@@ -1693,6 +1693,7 @@ export const FULL_LANGUAGE_MAPPING = [
     iso_3166_1: 'MX',
     flag: '🇲🇽',
     english_name: 'Spanish (Mexico)',
+    internal_english_name: 'Latino',
     name: 'Español',
   },
   {

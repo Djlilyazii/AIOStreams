@@ -118,11 +118,12 @@ export class MediaFusionPreset extends Preset {
       ),
       {
         id: 'useCachedResultsOnly',
-        name: 'Use Cached Results Only',
+        name: 'Use Cached Searches Only',
         description:
           "Only show results that are already cached in MediaFusion's database from previous searches. This disables live searching, making requests faster but potentially showing fewer results.",
         type: 'boolean',
-        default: true,
+        forced: Env.MEDIAFUSION_FORCED_USE_CACHED_RESULTS_ONLY,
+        default: Env.MEDIAFUSION_DEFAULT_USE_CACHED_RESULTS_ONLY,
       },
       {
         id: 'enableWatchlistCatalogs',
@@ -282,12 +283,24 @@ export class MediaFusionPreset extends Preset {
     options: Record<string, any>,
     serviceId?: ServiceId
   ): Addon {
+    let url = options.url || this.METADATA.URL;
+    if (url.endsWith('/manifest.json')) {
+      return url;
+    }
+    url = url.replace(/\/$/, '');
     return {
       name: options.name || this.METADATA.NAME,
-      identifyingName: serviceId
-        ? `${options.name || this.METADATA.NAME} ${constants.SERVICE_DETAILS[serviceId].shortName}`
-        : options.name || this.METADATA.NAME,
-      manifestUrl: `${Env.MEDIAFUSION_URL}/manifest.json`,
+      identifier: serviceId
+        ? `${constants.SERVICE_DETAILS[serviceId].shortName}`
+        : options.url?.endsWith('/manifest.json')
+          ? undefined
+          : 'p2p',
+      displayIdentifier: serviceId
+        ? `${constants.SERVICE_DETAILS[serviceId].shortName}`
+        : options.url?.endsWith('/manifest.json')
+          ? undefined
+          : 'P2P',
+      manifestUrl: `${url}/manifest.json`,
       enabled: true,
       resources: options.resources || this.METADATA.SUPPORTED_RESOURCES,
       timeout: options.timeout || this.METADATA.TIMEOUT,
@@ -310,11 +323,6 @@ export class MediaFusionPreset extends Preset {
     options: Record<string, any>,
     serviceId: ServiceId | undefined
   ) {
-    let url = options.url || this.METADATA.URL;
-    if (url.endsWith('/manifest.json')) {
-      return url;
-    }
-    url = url.replace(/\/$/, '');
     const encodedUserData = this.base64EncodeJSON(
       {
         streaming_provider: !serviceId
@@ -343,7 +351,7 @@ export class MediaFusionPreset extends Preset {
         enable_catalogs: true,
         enable_imdb_metadata: false,
         max_size: 'inf',
-        max_streams_per_resolution: '10',
+        max_streams_per_resolution: '500',
         torrent_sorting_priority: [
           { key: 'language', direction: 'desc' },
           { key: 'cached', direction: 'desc' },
@@ -422,7 +430,7 @@ export class MediaFusionPreset extends Preset {
         api_password: Env.MEDIAFUSION_API_PASSWORD,
         mediaflow_config: null,
         rpdb_config: null,
-        live_search_streams: options.liveSearchStreams || false,
+        live_search_streams: !options.useCachedResultsOnly,
         contribution_streams: false,
         mdblist_config: null,
       },

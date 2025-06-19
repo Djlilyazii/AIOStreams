@@ -14,6 +14,7 @@ const levelMap: { [key: string]: string } = {
 };
 
 const moduleMap: { [key: string]: string } = {
+  startup: '🚀  STARTUP',
   server: '🌐  SERVER',
   wrappers: '📦  WRAPPERS',
   crypto: '🔒  CRYPTO',
@@ -61,7 +62,7 @@ winston.addColors(levelColors);
 
 export const createLogger = (module: string) => {
   const isJsonFormat = Env.LOG_FORMAT === 'json';
-  const timezone = Env.LOG_TIMEZONE || Env.TZ;
+  const timezone = Env.LOG_TIMEZONE;
 
   const timestampFormat = winston.format((info) => {
     info.timestamp = moment().tz(timezone).format('YYYY-MM-DD HH:mm:ss.SSS z');

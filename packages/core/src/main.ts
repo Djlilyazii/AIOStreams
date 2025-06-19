@@ -21,6 +21,9 @@ import {
   PossibleRecursiveRequestError,
   decryptString,
   maskSensitiveInfo,
+  DSU,
+  Metadata,
+  Cache,
 } from './utils';
 import { Wrapper } from './wrapper';
 import { PresetManager } from './presets';
@@ -49,6 +52,8 @@ import {
 import { RPDB } from './utils/rpdb';
 import { FeatureControl } from './utils/feature';
 const logger = createLogger('core');
+
+const shuffleCache = Cache.getInstance<string, MetaPreview[]>('shuffle');
 
 export interface AIOStreamsError {
   title?: string;
@@ -121,10 +126,6 @@ export class AIOStreams {
 
     const { streams, errors } = await this.getStreamsFromAddons(type, id);
 
-    logger.info(
-      `Received ${streams.length} streams and ${errors.length} errors`
-    );
-
     // step 3
     // apply all filters to the streams.
 
@@ -140,7 +141,10 @@ export class AIOStreams {
 
     await this.precomputeSortRegexes(deduplicatedStreams);
 
-    const sortedStreams = this.sortStreams(deduplicatedStreams, type)
+    const sortedStreams = this.sortStreams(
+      deduplicatedStreams,
+      id.startsWith('kitsu') ? 'anime' : type
+    )
       // remove HDR+DV from visual tags after filtering/sorting
       .map((stream) => {
         if (stream.parsedFile?.visualTags?.includes('HDR+DV')) {
@@ -163,6 +167,8 @@ export class AIOStreams {
       await this.proxifyStreams(limitedStreams)
     );
 
+    let finalStreams = proxifiedStreams;
+
     // step 8
     // if this.userData.precacheNextEpisode is true, start a new thread to request the next episode, check if
     // all provider streams are uncached, and only if so, then send a request to the first uncached stream in the list.
@@ -178,16 +184,53 @@ export class AIOStreams {
       });
     }
 
+    if (this.userData.externalDownloads) {
+      logger.info(`Adding external downloads to streams`);
+      let count = 0;
+      // for each stream object, insert a new stream object, replacing the url with undefined, and appending its value to externalUrl instead
+      // and place it right after the original stream object
+      const streamsWithExternalDownloads: ParsedStream[] = [];
+      for (const stream of proxifiedStreams) {
+        streamsWithExternalDownloads.push(stream);
+        if (stream.url) {
+          const downloadableStream: ParsedStream =
+            this.createDownloadableStream(stream);
+          streamsWithExternalDownloads.push(downloadableStream);
+          count++;
+        }
+      }
+      logger.info(`Added ${count} external downloads to streams`);
+      finalStreams = streamsWithExternalDownloads;
+    }
     // step 9
     // return the final list of streams, followed by the error streams.
     logger.info(
-      `Returning ${proxifiedStreams.length} streams and ${errors.length} errors`
+      `Returning ${finalStreams.length} streams and ${errors.length} errors`
     );
     return {
       success: true,
-      data: proxifiedStreams,
+      data: finalStreams,
       errors: errors,
     };
+  }
+
+  private createDownloadableStream(stream: ParsedStream): ParsedStream {
+    const copy = structuredClone(stream);
+    copy.url = undefined;
+    copy.externalUrl = stream.url;
+    copy.message = `Download the stream above via your browser`;
+    copy.id = `${stream.id}-external-download`;
+    copy.type = 'external';
+    // remove uneccessary info that is already present in the original stream above
+    copy.parsedFile = undefined;
+    copy.size = undefined;
+    copy.torrent = undefined;
+    copy.indexer = undefined;
+    copy.age = undefined;
+    copy.duration = undefined;
+    copy.folderName = undefined;
+    copy.filename = undefined;
+    return copy;
   }
 
   private async precacheNextEpisode(type: string, id: string) {
@@ -257,7 +300,7 @@ export class AIOStreams {
         data: [],
         errors: [
           {
-            title: `Addon ${addonInstanceId} not found`,
+            title: `Addon ${addonInstanceId} not found. Try reinstalling the addon.`,
             description: 'Addon not found',
           },
         ],
@@ -309,8 +352,24 @@ export class AIOStreams {
 
     if (modification) {
       if (modification.shuffle && !(extras && extras.includes('search'))) {
-        // shuffle the catalog array  if it is not a search
-        catalog = catalog.sort(() => Math.random() - 0.5);
+        // shuffle the catalog array if it is not a search
+        const cacheKey = `shuffle-${type}-${actualCatalogId}-${extras}-${this.userData.uuid}`;
+        const cachedShuffle = shuffleCache.get(cacheKey, false);
+        if (cachedShuffle) {
+          catalog = cachedShuffle;
+        } else {
+          for (let i = catalog.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [catalog[i], catalog[j]] = [catalog[j], catalog[i]];
+          }
+          if (modification.persistShuffleFor) {
+            shuffleCache.set(
+              cacheKey,
+              catalog,
+              modification.persistShuffleFor * 3600
+            );
+          }
+        }
       }
       if (modification.rpdb && this.userData.rpdbApiKey) {
         const rpdb = new RPDB(this.userData.rpdbApiKey);
@@ -456,6 +515,13 @@ export class AIOStreams {
           reason: candidate.reason,
         });
 
+        // don't push errors if the reason for trying was general type support
+        // this is to ensure that we don't block stremio from making requests to other addons
+        // which may potentially be the intended addon
+        if (candidate.reason === 'general type support') {
+          continue;
+        }
+
         errors.push({
           title: `[❌] ${candidate.addon.name}`,
           description: errorMessage,
@@ -511,7 +577,7 @@ export class AIOStreams {
     // Request subtitles from all supported addons in parallel
     let errors: AIOStreamsError[] = this.addonInitialisationErrors.map(
       (error) => ({
-        title: `[❌] ${error.addon.identifyingName}`,
+        title: `[❌] ${this.getAddonName(error.addon)}`,
         description: error.error,
       })
     );
@@ -531,7 +597,7 @@ export class AIOStreams {
         } catch (error) {
           await this.handlePossibleRecursiveError(error);
           errors.push({
-            title: `[❌] ${addon.identifyingName}`,
+            title: `[❌] ${this.getAddonName(addon)}`,
             description: error instanceof Error ? error.message : String(error),
           });
         }
@@ -587,7 +653,7 @@ export class AIOStreams {
         data: [],
         errors: [
           {
-            title: `[❌] ${addon.identifyingName}`,
+            title: `[❌] ${this.getAddonName(addon)}`,
             description: error instanceof Error ? error.message : String(error),
           },
         ],
@@ -615,7 +681,9 @@ export class AIOStreams {
         ...addons.map((a) => ({
           ...a,
           presetInstanceId: preset.instanceId,
-          instanceId: `${preset.instanceId}${getSimpleTextHash(`${a.manifestUrl}`).slice(0, 4)}`,
+          // if no identifier is present, we can assume that the preset can only generate one addon at a time and so no
+          // unique identifier is needed as the preset instance id is enough to identify the addon
+          instanceId: `${preset.instanceId}${getSimpleTextHash(`${a.identifier ?? ''}`).slice(0, 4)}`,
         }))
       );
     }
@@ -675,7 +743,7 @@ export class AIOStreams {
       }
 
       logger.verbose(
-        `Determined that ${addon.identifyingName} (Instance ID: ${instanceId}) has support for the following resources: ${JSON.stringify(
+        `Determined that ${this.getAddonName(addon)} (Instance ID: ${instanceId}) has support for the following resources: ${JSON.stringify(
           addonResources
         )}`
       );
@@ -849,6 +917,10 @@ export class AIOStreams {
     return this.addons.find((a) => a.instanceId === instanceId);
   }
 
+  public getAddonName(addon: Addon): string {
+    return `${addon.name}${addon.displayIdentifier || addon.identifier ? ` ${addon.displayIdentifier || addon.identifier}` : ''}`;
+  }
+
   private shouldProxyStream(stream: ParsedStream): boolean {
     const streamService = stream.service ? stream.service.id : 'none';
     const proxy = this.userData.proxy;
@@ -926,7 +998,7 @@ export class AIOStreams {
             addon.presetInstanceId || ''
           ));
       logger.debug(
-        `Using ${proxy ? 'proxy' : 'user'} ip for ${addon.identifyingName}: ${
+        `Using ${proxy ? 'proxy' : 'user'} ip for ${this.getAddonName(addon)}: ${
           proxy
             ? maskSensitiveInfo(proxyIp ?? 'none')
             : maskSensitiveInfo(userIp ?? 'none')
@@ -970,10 +1042,11 @@ export class AIOStreams {
     );
 
     let errors: AIOStreamsError[] = this.addonInitialisationErrors.map((e) => ({
-      title: `[❌] ${e.addon.identifyingName}`,
+      title: `[❌] ${this.getAddonName(e.addon)}`,
       description: e.error,
     }));
     let parsedStreams: ParsedStream[] = [];
+    const start = Date.now();
     let totalTimeTaken = 0;
     let previousGroupStreams: ParsedStream[] = [];
     let previousGroupTimeTaken = 0;
@@ -991,14 +1064,14 @@ export class AIOStreams {
         );
         if (errorStreams.length > 0) {
           logger.error(
-            `Found ${errorStreams.length} error streams from ${addon.identifyingName}`,
+            `Found ${errorStreams.length} error streams from ${this.getAddonName(addon)}`,
             {
               errorStreams: errorStreams.map((s) => s.error?.title),
             }
           );
           errors.push(
             ...errorStreams.map((s) => ({
-              title: `[❌] ${s.error?.title || addon.identifyingName}`,
+              title: `[❌] ${s.error?.title || this.getAddonName(addon)}`,
               description: s.error?.description || 'Unknown error',
             }))
           );
@@ -1016,7 +1089,7 @@ export class AIOStreams {
 
         summaryMsg = `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  ${errorStreams.length > 0 ? '🟠' : '🟢'} [${addon.identifyingName}] Scrape Summary
+  ${errorStreams.length > 0 ? '🟠' : '🟢'} [${this.getAddonName(addon)}] Scrape Summary
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   ✔ Status      : ${errorStreams.length > 0 ? 'PARTIAL SUCCESS' : 'SUCCESS'}
   📦 Streams    : ${streams.length}
@@ -1037,12 +1110,12 @@ ${errorStreams.length > 0 ? `  ❌ Errors     : ${errorStreams.map((s) => `    �
         await this.handlePossibleRecursiveError(error);
         const errMsg = error instanceof Error ? error.message : String(error);
         errors.push({
-          title: `[❌] ${addon.identifyingName}`,
+          title: `[❌] ${this.getAddonName(addon)}`,
           description: errMsg,
         });
         summaryMsg = `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  🔴 [${addon.identifyingName}] Scrape Summary
+  🔴 [${addon.name} ${addon.identifier}] Scrape Summary
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   ✖ Status      : FAILED
   🚫 Error      : ${errMsg}
@@ -1134,20 +1207,26 @@ ${errorStreams.length > 0 ? `  ❌ Errors     : ${errorStreams.map((s) => `    �
       totalTimeTaken = result.totalTime;
     }
 
+    logger.info(
+      `Fetched ${parsedStreams.length} streams from ${supportedAddons.length} addons in ${getTimeTakenSincePoint(start)}`
+    );
     return { streams: parsedStreams, errors };
   }
 
   private validateAddon(addon: Addon) {
+    const manifestUrl = new URL(addon.manifestUrl);
+    const baseUrl = Env.BASE_URL ? new URL(Env.BASE_URL) : undefined;
     if (this.userData.uuid && addon.manifestUrl.includes(this.userData.uuid)) {
       logger.warn(
         `${this.userData.uuid} detected to be trying to cause infinite self scraping`
       );
       throw new Error(
-        `${addon.identifyingName} appears to be trying to scrape the current user's AIOStreams instance.`
+        `${this.getAddonName(addon)} appears to be trying to scrape the current user's AIOStreams instance.`
       );
     } else if (
-      Env.BASE_URL &&
-      new URL(addon.manifestUrl).host === new URL(Env.BASE_URL).host &&
+      ((baseUrl && manifestUrl.host === baseUrl.host) ||
+        (manifestUrl.host.startsWith('localhost') &&
+          manifestUrl.port === Env.PORT.toString())) &&
       Env.DISABLE_SELF_SCRAPING === true
     ) {
       throw new Error(
@@ -1159,16 +1238,14 @@ ${errorStreams.length > 0 ? `  ❌ Errors     : ${errorStreams.map((s) => `    �
       FeatureControl.disabledAddons.has(addon.presetInstanceId)
     ) {
       throw new Error(
-        `Addon ${addon.identifyingName} is disabled: ${FeatureControl.disabledAddons.get(
+        `Addon ${this.getAddonName(addon)} is disabled: ${FeatureControl.disabledAddons.get(
           addon.presetType
         )}`
       );
-    } else if (
-      FeatureControl.disabledHosts.has(new URL(addon.manifestUrl).host)
-    ) {
+    } else if (FeatureControl.disabledHosts.has(manifestUrl.host)) {
       throw new Error(
-        `Addon ${addon.identifyingName} is disabled: ${FeatureControl.disabledHosts.get(
-          new URL(addon.manifestUrl).host
+        `Addon ${this.getAddonName(addon)} is disabled: ${FeatureControl.disabledHosts.get(
+          manifestUrl.host
         )}`
       );
     }
@@ -1183,6 +1260,7 @@ ${errorStreams.length > 0 ? `  ❌ Errors     : ${errorStreams.map((s) => `    �
       total: number;
       details: Record<string, number>;
     }
+    const isAnime = id.startsWith('kitsu');
     const skipReasons: Record<string, SkipReason> = {
       titleMatching: { total: 0, details: {} },
       seasonEpisodeMatching: { total: 0, details: {} },
@@ -1217,13 +1295,13 @@ ${errorStreams.length > 0 ? `  ❌ Errors     : ${errorStreams.map((s) => `    �
     const start = Date.now();
     const isRegexAllowed = FeatureControl.isRegexAllowed(this.userData);
 
-    let titles: string[] = [];
+    let requestedMetadata: Metadata | undefined;
     if (this.userData.titleMatching?.enabled && TYPES.includes(type as any)) {
       try {
-        titles = await new TMDBMetadata(
+        requestedMetadata = await new TMDBMetadata(
           this.userData.tmdbAccessToken
-        ).getTitles(id, type as any);
-        logger.info(`Found ${titles.length} titles for ${id}`, { titles });
+        ).getMetadata(id, type as any);
+        logger.info(`Fetched metadata for ${id}`, requestedMetadata);
       } catch (error) {
         logger.error(`Error fetching titles for ${id}: ${error}`);
       }
@@ -1231,27 +1309,32 @@ ${errorStreams.length > 0 ? `  ❌ Errors     : ${errorStreams.map((s) => `    �
 
     const normaliseTitle = (title: string) => {
       return title
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
         .replace(/[^\p{L}\p{N}+]/gu, '')
-        .replace(/\s+/g, '')
         .toLowerCase();
     };
 
     const performTitleMatch = (stream: ParsedStream) => {
-      const titleMatchingOptions = this.userData.titleMatching;
+      // const titleMatchingOptions = this.userData.titleMatching;
+      const titleMatchingOptions = {
+        mode: 'exact',
+        ...(this.userData.titleMatching ?? {}),
+      };
       if (!titleMatchingOptions || !titleMatchingOptions.enabled) {
         return true;
       }
-
-      if (titles.length === 0) {
-        // don't filter out streams if no titles could be found
+      if (!requestedMetadata || requestedMetadata.titles.length === 0) {
         return true;
       }
-      const streamTitle = stream.parsedFile?.title;
 
+      const streamTitle = stream.parsedFile?.title;
+      const streamYear = stream.parsedFile?.year;
       // now check if we need to check this stream based on the addon and request type
       if (
         titleMatchingOptions.requestTypes?.length &&
-        !titleMatchingOptions.requestTypes.includes(type)
+        (!titleMatchingOptions.requestTypes.includes(type) ||
+          (isAnime && !titleMatchingOptions.requestTypes.includes('anime')))
       ) {
         return true;
       }
@@ -1263,20 +1346,29 @@ ${errorStreams.length > 0 ? `  ❌ Errors     : ${errorStreams.map((s) => `    �
         return true;
       }
 
-      if (!streamTitle) {
-        // if a specific stream doesn't have a title, filter it out.
+      if (
+        !streamTitle ||
+        (titleMatchingOptions.matchYear && !streamYear && type === 'movie')
+      ) {
+        // only filter out movies without a year as series results usually don't include a year
         return false;
       }
+      const yearMatch =
+        titleMatchingOptions.matchYear && streamYear
+          ? requestedMetadata?.year === streamYear
+          : true;
 
       if (titleMatchingOptions.mode === 'exact') {
-        // the stream title should be an exact match of a valid title
-        return titles.some(
-          (title) => normaliseTitle(title) === normaliseTitle(streamTitle)
+        return (
+          requestedMetadata?.titles.some(
+            (title) => normaliseTitle(title) === normaliseTitle(streamTitle)
+          ) && yearMatch
         );
       } else {
-        // a valid title should be present somewhere in the stream title
-        return titles.some((title) =>
-          normaliseTitle(streamTitle).includes(normaliseTitle(title))
+        return (
+          requestedMetadata?.titles.some((title) =>
+            normaliseTitle(streamTitle).includes(normaliseTitle(title))
+          ) && yearMatch
         );
       }
     };
@@ -1304,7 +1396,9 @@ ${errorStreams.length > 0 ? `  ❌ Errors     : ${errorStreams.map((s) => `    �
 
       if (
         seasonEpisodeMatchingOptions.requestTypes?.length &&
-        !seasonEpisodeMatchingOptions.requestTypes.includes(type)
+        (!seasonEpisodeMatchingOptions.requestTypes.includes(type) ||
+          (isAnime &&
+            !seasonEpisodeMatchingOptions.requestTypes.includes('anime')))
       ) {
         return true;
       }
@@ -1592,16 +1686,14 @@ ${errorStreams.length > 0 ? `  ❌ Errors     : ${errorStreams.map((s) => `    �
             this.userData.seederRangeTypes.includes(typeForSeederRange)))
       ) {
         if (
-          stream.torrent?.seeders &&
           includedSeederRange[0] &&
-          stream.torrent.seeders > includedSeederRange[0]
+          (stream.torrent?.seeders ?? 0) > includedSeederRange[0]
         ) {
           return true;
         }
         if (
-          stream.torrent?.seeders &&
           includedSeederRange[1] &&
-          stream.torrent.seeders < includedSeederRange[1]
+          (stream.torrent?.seeders ?? 0) < includedSeederRange[1]
         ) {
           return true;
         }
@@ -1838,16 +1930,15 @@ ${errorStreams.length > 0 ? `  ❌ Errors     : ${errorStreams.map((s) => `    �
 
       // languages
       if (
-        this.userData.excludedLanguages?.some((lang) =>
-          (file?.languages.length ? file.languages : ['Unknown']).includes(lang)
+        this.userData.excludedLanguages?.length &&
+        (file?.languages.length ? file.languages : ['Unknown']).every((lang) =>
+          this.userData.excludedLanguages!.includes(lang as any)
         )
       ) {
-        const lang = this.userData.excludedLanguages.find((lang) =>
-          (file?.languages.length ? file.languages : ['Unknown']).includes(lang)
-        );
+        const lang = file?.languages[0] || 'Unknown';
         skipReasons.excludedLanguage.total++;
-        skipReasons.excludedLanguage.details[lang!] =
-          (skipReasons.excludedLanguage.details[lang!] || 0) + 1;
+        skipReasons.excludedLanguage.details[lang] =
+          (skipReasons.excludedLanguage.details[lang] || 0) + 1;
         return false;
       }
 
@@ -1946,16 +2037,15 @@ ${errorStreams.length > 0 ? `  ❌ Errors     : ${errorStreams.map((s) => `    �
             this.userData.seederRangeTypes.includes(typeForSeederRange)))
       ) {
         if (
-          stream.torrent?.seeders &&
           requiredSeederRange[0] &&
-          stream.torrent.seeders < requiredSeederRange[0]
+          (stream.torrent?.seeders ?? 0) < requiredSeederRange[0]
         ) {
           return false;
         }
         if (
-          stream.torrent?.seeders &&
+          stream.torrent?.seeders !== undefined &&
           requiredSeederRange[1] &&
-          stream.torrent.seeders > requiredSeederRange[1]
+          (stream.torrent?.seeders ?? 0) > requiredSeederRange[1]
         ) {
           return false;
         }
@@ -1968,16 +2058,14 @@ ${errorStreams.length > 0 ? `  ❌ Errors     : ${errorStreams.map((s) => `    �
             this.userData.seederRangeTypes.includes(typeForSeederRange)))
       ) {
         if (
-          stream.torrent?.seeders &&
           excludedSeederRange[0] &&
-          stream.torrent.seeders > excludedSeederRange[0]
+          (stream.torrent?.seeders ?? 0) > excludedSeederRange[0]
         ) {
           return false;
         }
         if (
-          stream.torrent?.seeders &&
           excludedSeederRange[1] &&
-          stream.torrent.seeders < excludedSeederRange[1]
+          (stream.torrent?.seeders ?? 0) < excludedSeederRange[1]
         ) {
           return false;
         }
@@ -1986,10 +2074,10 @@ ${errorStreams.length > 0 ? `  ❌ Errors     : ${errorStreams.map((s) => `    �
       if (!performTitleMatch(stream)) {
         skipReasons.titleMatching.total++;
         skipReasons.titleMatching.details[
-          stream.parsedFile?.title || 'Unknown'
+          `${stream.parsedFile?.title || 'Unknown Title'}${type === 'movie' ? ` - (${stream.parsedFile?.year || 'Unknown Year'})` : ''}`
         ] =
           (skipReasons.titleMatching.details[
-            stream.parsedFile?.title || 'Unknown'
+            `${stream.parsedFile?.title || 'Unknown Title'}${type === 'movie' ? ` - (${stream.parsedFile?.year || 'Unknown Year'})` : ''}`
           ] || 0) + 1;
         return false;
       }
@@ -2143,11 +2231,14 @@ ${errorStreams.length > 0 ? `  ❌ Errors     : ${errorStreams.map((s) => `    �
     };
 
     // Group streams by their deduplication keys
-    const streamGroups = new Map<string, ParsedStream[]>();
+    // const streamGroups = new Map<string, ParsedStream[]>();
+    const dsu = new DSU<string>();
+    const keyToStreamIds = new Map<string, string[]>();
 
     for (const stream of streams) {
       // Create a unique key based on the selected deduplication methods
-      const keys: string[] = [];
+      dsu.makeSet(stream.id);
+      const currentStreamKeyStrings: string[] = [];
 
       if (deduplicationKeys.includes('filename') && stream.filename) {
         let normalisedFilename = stream.filename
@@ -2158,11 +2249,11 @@ ${errorStreams.length > 0 ? `  ❌ Errors     : ${errorStreams.map((s) => `    �
           .replace(/[^\p{L}\p{N}+]/gu, '')
           .replace(/\s+/g, '')
           .toLowerCase();
-        keys.push(`filename:${normalisedFilename}`);
+        currentStreamKeyStrings.push(`filename:${normalisedFilename}`);
       }
 
       if (deduplicationKeys.includes('infoHash') && stream.torrent?.infoHash) {
-        keys.push(`infoHash:${stream.torrent.infoHash}`);
+        currentStreamKeyStrings.push(`infoHash:${stream.torrent.infoHash}`);
       }
 
       if (deduplicationKeys.includes('smartDetect')) {
@@ -2174,27 +2265,43 @@ ${errorStreams.length > 0 ? `  ❌ Errors     : ${errorStreams.map((s) => `    �
         const hash = getSimpleTextHash(
           `${roundedSize}${stream.parsedFile?.resolution}${stream.parsedFile?.quality}${stream.parsedFile?.visualTags}${stream.parsedFile?.audioTags}${stream.parsedFile?.languages}${stream.parsedFile?.encode}`
         );
-        keys.push(`smartDetect:${hash}`);
+        currentStreamKeyStrings.push(`smartDetect:${hash}`);
       }
 
-      // If no keys match, keep the stream
-      if (keys.length === 0) {
-        streamGroups.set(`unique_${Math.random()}`, [stream]);
-        continue;
-      }
-
-      // Add stream to all matching key groups
-      for (const key of keys) {
-        const group = streamGroups.get(key) || [];
-        group.push(stream);
-        streamGroups.set(key, group);
+      if (currentStreamKeyStrings.length > 0) {
+        for (const key of currentStreamKeyStrings) {
+          if (!keyToStreamIds.has(key)) {
+            keyToStreamIds.set(key, []);
+          }
+          keyToStreamIds.get(key)!.push(stream.id);
+        }
       }
     }
 
-    // Process each group based on stream types and deduplication modes
+    // Perform union operations based on shared keys
+    for (const streamIdsSharingCommonKey of keyToStreamIds.values()) {
+      if (streamIdsSharingCommonKey.length > 1) {
+        const firstStreamId = streamIdsSharingCommonKey[0];
+        for (let i = 1; i < streamIdsSharingCommonKey.length; i++) {
+          dsu.union(firstStreamId, streamIdsSharingCommonKey[i]);
+        }
+      }
+    }
+    // Group actual stream objects by their DSU representative ID
+    const idToStreamMap = new Map(streams.map((s) => [s.id, s])); // For quick lookup
+    const finalDuplicateGroupsMap = new Map<string, ParsedStream[]>(); // Maps representative ID to stream objects
+
+    for (const stream of streams) {
+      const representativeId = dsu.find(stream.id);
+      if (!finalDuplicateGroupsMap.has(representativeId)) {
+        finalDuplicateGroupsMap.set(representativeId, []);
+      }
+      finalDuplicateGroupsMap.get(representativeId)!.push(stream);
+    }
+
     const processedStreams = new Set<ParsedStream>();
 
-    for (const group of streamGroups.values()) {
+    for (const group of finalDuplicateGroupsMap.values()) {
       // Group streams by type
       const streamsByType = new Map<string, ParsedStream[]>();
       for (const stream of group) {
@@ -2605,40 +2712,67 @@ ${errorStreams.length > 0 ? `  ❌ Errors     : ${errorStreams.map((s) => `    �
         case 'seeders':
           return multiplier * (stream.torrent?.seeders ?? 0);
         case 'encode': {
+          if (!userData.preferredEncodes) {
+            return 0;
+          }
+
           const index = userData.preferredEncodes?.findIndex(
             (encode) => encode === (stream.parsedFile?.encode || 'Unknown')
           );
-          return multiplier * -(index === -1 ? 0 : (index ?? 0));
+          return multiplier * -(index === -1 ? Infinity : index);
         }
         case 'addon':
           // find the first occurence of the stream.addon.id in the addons array
+          if (!userData.presets) {
+            return 0;
+          }
+
           const idx = userData.presets.findIndex(
             (p) => p.instanceId === stream.addon.presetInstanceId
           );
-          return multiplier * (idx !== -1 ? -idx : 0);
+          return multiplier * -(idx === -1 ? Infinity : idx);
 
         case 'resolution': {
+          if (!userData.preferredResolutions) {
+            return 0;
+          }
+
           const index = userData.preferredResolutions?.findIndex(
             (resolution) =>
               resolution === (stream.parsedFile?.resolution || 'Unknown')
           );
-          return multiplier * -(index === -1 ? 0 : (index ?? 0));
+          return multiplier * -(index === -1 ? Infinity : index);
         }
         case 'quality': {
-          const index = userData.preferredQualities?.findIndex(
+          if (!userData.preferredQualities) {
+            return 0;
+          }
+
+          const index = userData.preferredQualities.findIndex(
             (quality) => quality === (stream.parsedFile?.quality || 'Unknown')
           );
-          return multiplier * -(index === -1 ? 0 : (index ?? 0));
+          return multiplier * -(index === -1 ? Infinity : index);
         }
         case 'visualTag': {
+          if (!userData.preferredVisualTags) {
+            return 0;
+          }
+
+          const effectiveVisualTags = stream.parsedFile?.visualTags.length
+            ? stream.parsedFile.visualTags
+            : ['Unknown'];
+
+          if (
+            effectiveVisualTags.every(
+              (tag) => !userData.preferredVisualTags!.includes(tag as any)
+            )
+          ) {
+            return multiplier * -Infinity;
+          }
+
           let minIndex = userData.preferredVisualTags?.length;
-          if (minIndex === undefined) {
-            return 0;
-          }
-          if (!stream.parsedFile) {
-            return 0;
-          }
-          for (const tag of stream.parsedFile?.visualTags || []) {
+
+          for (const tag of effectiveVisualTags) {
             if (VISUAL_TAGS.includes(tag as any)) {
               const idx = userData.preferredVisualTags?.indexOf(tag as any);
               if (idx !== undefined && idx !== -1 && idx < minIndex) {
@@ -2649,14 +2783,24 @@ ${errorStreams.length > 0 ? `  ❌ Errors     : ${errorStreams.map((s) => `    �
           return multiplier * -minIndex;
         }
         case 'audioTag': {
-          let minAudioIndex = userData.preferredAudioTags?.length;
-          if (minAudioIndex === undefined) {
+          if (!userData.preferredAudioTags) {
             return 0;
           }
-          if (!stream.parsedFile) {
-            return 0;
+
+          const effectiveAudioTags = stream.parsedFile?.audioTags.length
+            ? stream.parsedFile.audioTags
+            : ['Unknown'];
+
+          if (
+            effectiveAudioTags.every(
+              (tag) => !userData.preferredAudioTags!.includes(tag as any)
+            )
+          ) {
+            return multiplier * -Infinity;
           }
-          for (const tag of stream.parsedFile.audioTags) {
+          let minAudioIndex = userData.preferredAudioTags.length;
+
+          for (const tag of effectiveAudioTags) {
             if (AUDIO_TAGS.includes(tag as any)) {
               const idx = userData.preferredAudioTags?.indexOf(tag as any);
               if (idx !== undefined && idx !== -1 && idx < minAudioIndex) {
@@ -2667,10 +2811,13 @@ ${errorStreams.length > 0 ? `  ❌ Errors     : ${errorStreams.map((s) => `    �
           return multiplier * -minAudioIndex;
         }
         case 'streamType': {
+          if (!userData.preferredStreamTypes) {
+            return 0;
+          }
           const index = userData.preferredStreamTypes?.findIndex(
             (type) => type === stream.type
           );
-          return multiplier * -(index === -1 ? 0 : (index ?? 0));
+          return multiplier * -(index === -1 ? Infinity : index);
         }
         case 'language': {
           let minLanguageIndex = userData.preferredLanguages?.length;
@@ -2691,20 +2838,18 @@ ${errorStreams.length > 0 ? `  ❌ Errors     : ${errorStreams.map((s) => `    �
             -(stream.regexMatched ? stream.regexMatched.index : Infinity)
           );
 
-        // return (
-        //   multiplier *
-        //   (stream.regexMatched ? -stream.regexMatched.index : -Infinity)
-        // );
-        // return multiplier * -(stream.regexMatched?.index ?? 0);
-
         case 'keyword':
           return multiplier * (stream.keywordMatched ? 1 : 0);
 
         case 'service': {
-          const index = userData.services?.findIndex(
+          if (!userData.services) {
+            return 0;
+          }
+
+          const index = userData.services.findIndex(
             (service) => service.id === stream.service?.id
           );
-          return multiplier * -(index === -1 ? 0 : (index ?? 0));
+          return multiplier * -(index === -1 ? Infinity : index);
         }
         default:
           return 0;

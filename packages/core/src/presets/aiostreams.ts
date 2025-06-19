@@ -31,13 +31,13 @@ class AIOStreamsStreamParser extends StreamParser {
       },
       error: aioStream.streamData?.error,
       type: aioStream.streamData?.type ?? 'http',
-      url: aioStream.url,
-      externalUrl: aioStream.externalUrl,
-      ytId: aioStream.ytId,
+      url: aioStream.url ?? undefined,
+      externalUrl: aioStream.externalUrl ?? undefined,
+      ytId: aioStream.ytId ?? undefined,
       requestHeaders: aioStream.behaviorHints?.proxyHeaders?.request,
       responseHeaders: aioStream.behaviorHints?.proxyHeaders?.response,
-      notWebReady: aioStream.behaviorHints?.notWebReady,
-      videoHash: aioStream.behaviorHints?.videoHash,
+      notWebReady: aioStream.behaviorHints?.notWebReady ?? undefined,
+      videoHash: aioStream.behaviorHints?.videoHash ?? undefined,
       filename: aioStream.streamData?.filename,
       folderName: aioStream.streamData?.folderName,
       size: aioStream.streamData?.size,
@@ -52,8 +52,8 @@ class AIOStreamsStreamParser extends StreamParser {
       parsedFile: aioStream.streamData?.parsedFile,
       keywordMatched: aioStream.streamData?.keywordMatched,
       regexMatched: aioStream.streamData?.regexMatched,
-      originalName: aioStream.name,
-      originalDescription: aioStream.description || stream.title,
+      originalName: aioStream.name ?? undefined,
+      originalDescription: (aioStream.description || stream.title) ?? undefined,
     };
   }
 }
@@ -137,7 +137,6 @@ export class AIOStreamsPreset extends Preset {
   ): Addon {
     return {
       name: options.name || this.METADATA.NAME,
-      identifyingName: options.name || this.METADATA.NAME,
       manifestUrl: options.manifestUrl.replace('stremio://', 'https://'),
       enabled: true,
       library: false,

@@ -10,7 +10,7 @@ import {
 import { AIOStreams } from '../main';
 import { Preset, PresetManager } from '../presets';
 import { createProxy } from '../proxy';
-import { constants } from '.';
+import { constants, TMDBMetadata } from '.';
 import { isEncrypted, decryptString, encryptString } from './crypto';
 import { Env } from './env';
 import { createLogger, maskSensitiveInfo } from './logger';
@@ -28,7 +28,15 @@ const logger = createLogger('core');
 export const formatZodError = (error: ZodError) => {
   let errs = [];
   for (const issue of error.issues) {
-    errs.push(`Invalid value for ${issue.path.join('.')}: ${issue.message}`);
+    errs.push(
+      `Invalid value for ${issue.path.join('.')}: ${issue.message}${
+        (issue as any).unionErrors
+          ? `. Union checks performed:\n${(issue as any).unionErrors
+              .map((issue: any) => `- ${formatZodError(issue)}`)
+              .join('\n')}`
+          : ''
+      }`
+    );
   }
   return errs.join(' | ');
 };
@@ -254,7 +262,25 @@ export async function validateConfig(
       'The password in the config does not match the password in the environment variables'
     );
   }
+  const validations = {
+    'excluded filter conditions': [
+      config.excludedFilterConditions,
+      Env.MAX_CONDITION_FILTERS,
+    ],
+    'excluded keywords': [config.excludedKeywords, Env.MAX_KEYWORD_FILTERS],
+    'included keywords': [config.includedKeywords, Env.MAX_KEYWORD_FILTERS],
+    'required keywords': [config.requiredKeywords, Env.MAX_KEYWORD_FILTERS],
+    'preferred keywords': [config.preferredKeywords, Env.MAX_KEYWORD_FILTERS],
+    groups: [config.groups, Env.MAX_GROUPS],
+  };
 
+  for (const [name, [items, max]] of Object.entries(validations)) {
+    if (items && max && (items as any[]).length > (max as number)) {
+      throw new Error(
+        `You have ${(items as any[]).length} ${name}, but the maximum is ${max}`
+      );
+    }
+  }
   // now, validate preset options and service credentials.
 
   if (config.presets) {
@@ -314,7 +340,22 @@ export async function validateConfig(
       const rpdb = new RPDB(config.rpdbApiKey);
       await rpdb.validateApiKey();
     } catch (error) {
-      throw new Error(`Invalid RPDB API key: ${error}`);
+      if (!skipErrorsFromAddonsOrProxies) {
+        throw new Error(`Invalid RPDB API key: ${error}`);
+      }
+      logger.warn(`Invalid RPDB API key: ${error}`);
+    }
+  }
+
+  if (config.titleMatching?.enabled === true) {
+    try {
+      const tmdb = new TMDBMetadata(config.tmdbAccessToken);
+      await tmdb.validateAccessToken();
+    } catch (error) {
+      if (!skipErrorsFromAddonsOrProxies) {
+        throw new Error(`Invalid TMDB access token: ${error}`);
+      }
+      logger.warn(`Invalid TMDB access token: ${error}`);
     }
   }
 

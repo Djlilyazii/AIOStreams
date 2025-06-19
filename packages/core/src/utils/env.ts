@@ -268,13 +268,13 @@ export const Env = cleanEnv(process.env, {
     desc: 'Log format for the addon',
     choices: ['text', 'json'],
   }),
-  TZ: str({
-    default: 'UTC',
-    desc: 'Timezone for log timestamps (e.g., America/New_York, Europe/London)',
-  }),
   LOG_TIMEZONE: str({
     default: 'UTC',
     desc: 'Timezone for log timestamps (e.g., America/New_York, Europe/London)',
+  }),
+  LOG_CACHE_STATS_INTERVAL: num({
+    default: 30,
+    desc: 'Interval for logging cache stats in minutes (verbose level only)',
   }),
 
   STREMIO_ADDONS_CONFIG_ISSUER: url({
@@ -355,15 +355,15 @@ export const Env = cleanEnv(process.env, {
     default: 30,
     desc: 'Max number of keyword filters',
   }),
+  MAX_CONDITION_FILTERS: num({
+    default: 30,
+    desc: 'Max number of condition filters',
+  }),
+  MAX_GROUPS: num({
+    default: 20,
+    desc: 'Max number of groups',
+  }),
 
-  MAX_MOVIE_SIZE: num({
-    default: 161061273600,
-    desc: 'Max movie size in bytes',
-  }),
-  MAX_EPISODE_SIZE: num({
-    default: 161061273600,
-    desc: 'Max episode size in bytes',
-  }),
   MAX_TIMEOUT: num({
     default: 50000,
     desc: 'Max timeout for the addon',
@@ -376,6 +376,20 @@ export const Env = cleanEnv(process.env, {
   DEFAULT_TIMEOUT: num({
     default: 15000,
     desc: 'Default timeout for the addon',
+  }),
+
+  FORCE_PUBLIC_PROXY_HOST: host({
+    default: undefined,
+    desc: 'Force public proxy host',
+  }),
+  FORCE_PUBLIC_PROXY_PORT: forcedPort({
+    default: undefined,
+    desc: 'Force public proxy port',
+  }),
+  FORCE_PUBLIC_PROXY_PROTOCOL: str({
+    default: undefined,
+    desc: 'Force public proxy protocol',
+    choices: ['http', 'https'],
   }),
 
   FORCE_PROXY_ENABLED: bool({
@@ -579,10 +593,6 @@ export const Env = cleanEnv(process.env, {
     default: 'https://comet.elfhosted.com',
     desc: 'Comet URL',
   }),
-  DEFAULT_COMET_INDEXERS: json({
-    default: ['dmm_public_hash_shares_only'],
-    desc: 'Comet indexers',
-  }),
   FORCE_COMET_HOSTNAME: host({
     default: undefined,
     desc: 'Force Comet hostname',
@@ -613,6 +623,14 @@ export const Env = cleanEnv(process.env, {
   MEDIAFUSION_API_PASSWORD: str({
     default: '',
     desc: 'MediaFusion API password',
+  }),
+  MEDIAFUSION_DEFAULT_USE_CACHED_RESULTS_ONLY: bool({
+    default: true,
+    desc: 'Default MediaFusion use cached results only',
+  }),
+  MEDIAFUSION_FORCED_USE_CACHED_RESULTS_ONLY: bool({
+    default: undefined,
+    desc: 'Force MediaFusion use cached results only',
   }),
   DEFAULT_MEDIAFUSION_TIMEOUT: num({
     default: undefined,
@@ -839,6 +857,19 @@ export const Env = cleanEnv(process.env, {
     default: undefined,
     desc: 'Default StremThru Store user agent',
   }),
+  FORCE_STREMTHRU_STORE_HOSTNAME: host({
+    default: undefined,
+    desc: 'Force StremThru Store hostname',
+  }),
+  FORCE_STREMTHRU_STORE_PORT: forcedPort({
+    default: undefined,
+    desc: 'Force StremThru Store port',
+  }),
+  FORCE_STREMTHRU_STORE_PROTOCOL: str({
+    default: undefined,
+    desc: 'Force StremThru Store protocol',
+    choices: ['http', 'https'],
+  }),
 
   // StremThru Torz settings
   STREMTHRU_TORZ_URL: url({
@@ -852,6 +883,19 @@ export const Env = cleanEnv(process.env, {
   DEFAULT_STREMTHRU_TORZ_USER_AGENT: userAgent({
     default: undefined,
     desc: 'Default StremThru Torz user agent',
+  }),
+  FORCE_STREMTHRU_TORZ_HOSTNAME: host({
+    default: undefined,
+    desc: 'Force StremThru Torz hostname',
+  }),
+  FORCE_STREMTHRU_TORZ_PORT: forcedPort({
+    default: undefined,
+    desc: 'Force StremThru Torz port',
+  }),
+  FORCE_STREMTHRU_TORZ_PROTOCOL: str({
+    default: undefined,
+    desc: 'Force StremThru Torz protocol',
+    choices: ['http', 'https'],
   }),
 
   DEFAULT_STREAMFUSION_URL: url({
@@ -1034,6 +1078,19 @@ export const Env = cleanEnv(process.env, {
   DEFAULT_DOCTOR_WHO_UNIVERSE_USER_AGENT: userAgent({
     default: undefined,
     desc: 'Default Doctor Who Universe user agent',
+  }),
+
+  WEBSTREAMR_URL: url({
+    default: 'https://webstreamr.hayd.uk',
+    desc: 'WebStreamr URL',
+  }),
+  DEFAULT_WEBSTREAMR_TIMEOUT: num({
+    default: undefined,
+    desc: 'Default WebStreamr timeout',
+  }),
+  DEFAULT_WEBSTREAMR_USER_AGENT: userAgent({
+    default: undefined,
+    desc: 'Default WebStreamr user agent',
   }),
 
   // Rate limiting settings
